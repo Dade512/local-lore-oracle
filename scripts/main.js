@@ -1,19 +1,10 @@
 /* ============================================================
-   LOCAL LORE ORACLE — MAIN v1.0
-   Chat-integrated local LLM lore assistant.
+   LOCAL LORE ORACLE — MAIN v1.1
+   Chat-integrated LLM lore assistant.
 
-   DEPLOYMENT: Ollama on Win11 gaming PC (RX 6800 XT, 32GB RAM)
-   connected to Foundry server via Tailscale.
-   MODEL: gemma4:e4b (6GB VRAM, 128K context, 2-4s responses)
-
-   FLOW:
-   1. Player types /lore [question] in chat
-   2. Module intercepts, suppresses raw command
-   3. Posts a "thinking" card (Tassle rummaging through pouches)
-   4. Constructs system prompt (persona + guardrails + knowledge)
-   5. Sends POST to Ollama OpenAI-compatible endpoint
-   6. Replaces thinking card with formatted response
-   7. On error, replaces with in-character error card
+   v1.1: Added API key support for cloud providers (Gemini, 
+   OpenAI). Bearer token sent when API key is configured.
+   Ollama (no key) still works — just leave the key blank.
 
    For Foundry VTT v13
    ============================================================ */
@@ -24,13 +15,10 @@ const MODULE_ID = "local-lore-oracle";
 const ORACLE_ALIAS = "Tasslequill Stumblebrook";
 const ORACLE_SUBTITLE = "Chronicler of the Unwritten · Devotee of Cayden Cailean";
 
-// Cooldown tracking
 let _lastQueryTime = 0;
 
 /* ----------------------------------------------------------
    DEFAULT SYSTEM PROMPT
-   Baked-in fallback used on first install before the GM
-   pastes the full prompt from Oracle_System_Prompt.md.
    ---------------------------------------------------------- */
 
 const DEFAULT_SYSTEM_PROMPT = `You are Tasslequill "Tassle" Stumblebrook, a 74-year-old kender bard and self-proclaimed Chronicler of the Unwritten. You are a devoted follower of Cayden Cailean, the Accidental God, patron of freedom, ale, and brave deeds. You travel the Inner Sea region collecting stories, histories, and "definitely not stolen" manuscripts.
@@ -67,19 +55,17 @@ Answer using the knowledge context when available. Supplement with general Golar
    ---------------------------------------------------------- */
 
 Hooks.once("init", () => {
-  console.log(`${MODULE_ID} | Initializing Local Lore Oracle`);
+  console.log(`${MODULE_ID} | Initializing Local Lore Oracle v1.1`);
   registerSettings();
 });
 
 Hooks.once("ready", () => {
-  // Install default system prompt on first run
   const currentPrompt = game.settings.get(MODULE_ID, "systemPrompt");
   if (!currentPrompt) {
     game.settings.set(MODULE_ID, "systemPrompt", DEFAULT_SYSTEM_PROMPT);
     console.log(`${MODULE_ID} | Default system prompt installed`);
   }
-
-  console.log(`${MODULE_ID} | Local Lore Oracle ready — type /lore [question] in chat`);
+  console.log(`${MODULE_ID} | Local Lore Oracle v1.1 ready — type /lore [question] in chat`);
 });
 
 /* ----------------------------------------------------------
@@ -97,7 +83,6 @@ Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
     return false;
   }
 
-  // Cooldown check
   const cooldown = game.settings.get(MODULE_ID, "cooldownSeconds") ?? 0;
   const now = Date.now();
   if (cooldown > 0 && (now - _lastQueryTime) < cooldown * 1000) {
@@ -116,7 +101,6 @@ Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
    ---------------------------------------------------------- */
 
 async function _handleOracleQuery(query) {
-  // Post the thinking message immediately
   const thinkingMsg = await ChatMessage.create({
     speaker: { alias: ORACLE_ALIAS },
     content: _buildThinkingCard(query),
@@ -137,10 +121,12 @@ async function _handleOracleQuery(query) {
 
 /* ----------------------------------------------------------
    LLM API CALL
+   Supports both Ollama (no auth) and cloud APIs (Bearer token).
    ---------------------------------------------------------- */
 
 async function _callLLM(query) {
   const endpoint = game.settings.get(MODULE_ID, "apiEndpoint");
+  const apiKey = game.settings.get(MODULE_ID, "apiKey");
   const model = game.settings.get(MODULE_ID, "modelName");
   const temperature = game.settings.get(MODULE_ID, "temperature");
   const maxTokens = game.settings.get(MODULE_ID, "maxTokens");
@@ -156,15 +142,21 @@ async function _callLLM(query) {
     max_tokens: maxTokens,
   };
 
+  // Build headers — add Authorization if API key is set
+  const headers = { "Content-Type": "application/json" };
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    throw new Error(`Ollama returned ${response.status}: ${errorText.slice(0, 200)}`);
+    throw new Error(`API returned ${response.status}: ${errorText.slice(0, 200)}`);
   }
 
   const data = await response.json();

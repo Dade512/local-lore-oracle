@@ -1,11 +1,7 @@
 /* ============================================================
-   LOCAL LORE ORACLE — SETTINGS v1.0
+   LOCAL LORE ORACLE — SETTINGS v1.1
    Module configuration for LLM endpoint, model, and prompts.
-
-   Default deployment: Ollama running on a Win11 gaming PC
-   (Ryzen 7 5800X / RX 6800 XT / 32GB RAM) connected to
-   the Foundry server via Tailscale. Gemma 4 E4B is the
-   recommended model — 6GB VRAM, fast inference, 128K context.
+   Supports both local Ollama and cloud APIs (Gemini, OpenAI).
    ============================================================ */
 
 const MODULE_ID = "local-lore-oracle";
@@ -14,20 +10,29 @@ export function registerSettings() {
 
   game.settings.register(MODULE_ID, "apiEndpoint", {
     name: "API Endpoint URL",
-    hint: "Your Ollama endpoint. For Tailscale: use your PC's Tailscale IP (e.g., http://100.x.x.x:11434/v1/chat/completions). For same-machine: http://localhost:11434/v1/chat/completions",
+    hint: "Gemini: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions — Ollama: http://100.x.x.x:11434/v1/chat/completions",
     scope: "world",
     config: true,
     type: String,
-    default: "http://localhost:11434/v1/chat/completions",
+    default: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+  });
+
+  game.settings.register(MODULE_ID, "apiKey", {
+    name: "API Key",
+    hint: "For Gemini: your Google AI Studio API key. For Ollama: leave blank (no auth needed). Get a Gemini key at https://aistudio.google.com/apikey",
+    scope: "world",
+    config: true,
+    type: String,
+    default: "",
   });
 
   game.settings.register(MODULE_ID, "modelName", {
     name: "Model Name",
-    hint: "Ollama model to use. Recommended: gemma4:e4b (needs 6GB VRAM, RX 6800 XT or better). Fallback: gemma3:4b (CPU-friendly, 3GB RAM).",
+    hint: "Gemini: gemini-2.5-flash (recommended). Ollama: gemma4:e4b or gemma3:4b.",
     scope: "world",
     config: true,
     type: String,
-    default: "gemma4:e4b",
+    default: "gemini-2.5-flash",
   });
 
   game.settings.register(MODULE_ID, "systemPrompt", {
@@ -50,27 +55,27 @@ export function registerSettings() {
 
   game.settings.register(MODULE_ID, "temperature", {
     name: "Temperature",
-    hint: "Response creativity. Lower = focused, higher = creative. 0.7–0.8 is good for Tassle's personality.",
+    hint: "Response creativity. 0.75–0.85 is good for Tassle's personality.",
     scope: "world",
     config: true,
     type: Number,
-    default: 0.75,
+    default: 0.80,
     range: { min: 0.1, max: 1.5, step: 0.05 },
   });
 
   game.settings.register(MODULE_ID, "maxTokens", {
     name: "Max Response Tokens",
-    hint: "Maximum response length. 400–600 gives 2–4 paragraph answers. Higher = longer responses but slower.",
+    hint: "Maximum response length. 500–700 gives 2–4 paragraph answers.",
     scope: "world",
     config: true,
     type: Number,
-    default: 512,
+    default: 600,
     range: { min: 128, max: 2048, step: 64 },
   });
 
   game.settings.register(MODULE_ID, "cooldownSeconds", {
     name: "Cooldown (seconds)",
-    hint: "Minimum time between /lore queries. Prevents spamming the LLM. 0 to disable.",
+    hint: "Minimum time between /lore queries. Prevents spam. 0 to disable.",
     scope: "world",
     config: true,
     type: Number,
@@ -78,7 +83,6 @@ export function registerSettings() {
     range: { min: 0, max: 60, step: 5 },
   });
 
-  // Settings menu button for prompt editing
   game.settings.registerMenu(MODULE_ID, "promptEditor", {
     name: "Edit Oracle Prompt & Knowledge",
     label: "Open Prompt Editor",
@@ -90,8 +94,7 @@ export function registerSettings() {
 }
 
 /* ----------------------------------------------------------
-   PROMPT EDITOR — FormApplication for the system prompt
-   and knowledge context. Too large for settings text inputs.
+   PROMPT EDITOR
    ---------------------------------------------------------- */
 
 class OraclePromptEditor extends FormApplication {
