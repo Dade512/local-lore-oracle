@@ -1,0 +1,25 @@
+<form>
+  <div class="form-group stacked">
+    <label>System Prompt</label>
+    <p class="notes">
+      Tassle's persona, speech patterns, and guardrails. Use <code>{KNOWLEDGE_CONTEXT}</code> as a placeholder — it gets replaced with the knowledge content below at runtime.
+      The full default prompt is in <code>Player_Safe/Oracle_System_Prompt.md</code>.
+    </p>
+    <textarea name="systemPrompt" rows="14" style="font-family: 'Courier Prime', monospace; font-size: 12px; width: 100%; resize: vertical;">{{systemPrompt}}</textarea>
+  </div>
+
+  <hr />
+
+  <div class="form-group stacked">
+    <label>Knowledge Context</label>
+    <p class="notes">
+      Player-safe knowledge injected into the prompt. Generate with <code>Build-Oracle-Context.ps1</code> and paste here.
+      Only content from <code>Player_Safe/</code> should go here — never GM-only material.
+    </p>
+    <textarea name="knowledgeContext" rows="14" style="font-family: 'Courier Prime', monospace; font-size: 12px; width: 100%; resize: vertical;">{{knowledgeContext}}</textarea>
+  </div>
+
+  <footer class="sheet-footer flexrow">
+    <button type="submit"><i class="fas fa-save"></i> Save</button>
+  </footer>
+</form>
