@@ -1,0 +1,289 @@
+/* ============================================================
+   WEATHER CONFIG UI v1.0 — Croaker's Ledger
+   Styles for the GM weather configuration panel.
+   Uses --baph-* CSS variables from noir-theme.css.
+
+   The panel is a field dispatch — a page torn from the
+   ledger and pinned to the tent post. Weather data scrawled
+   in iron gall ink, zone selection stamped in brass.
+   ============================================================ */
+
+/* --- Application Window Override ---
+   Match the Ledger chrome: leather header, parchment body. */
+.baph-weather-config {
+  border: 2px solid var(--baph-leather-mid, #8a7b66) !important;
+  box-shadow: 0 4px 16px rgba(42, 35, 29, 0.45),
+              inset 0 0 0 1px rgba(190, 176, 155, 0.3) !important;
+}
+
+.baph-weather-config .window-header {
+  background: var(--baph-leather-mid, #8a7b66) !important;
+  border-bottom: 2px solid var(--baph-leather-dark, #6b5c4a) !important;
+  font-family: var(--baph-font-heading, 'Courier Prime', monospace) !important;
+  color: var(--baph-parchment-bright, #e8dfd0) !important;
+}
+
+.baph-weather-config .window-title {
+  font-family: var(--baph-font-heading, 'Courier Prime', monospace) !important;
+  color: var(--baph-parchment-bright, #e8dfd0) !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5) !important;
+  letter-spacing: 0.04em;
+}
+
+.baph-weather-config .window-content {
+  background: var(--baph-parchment-mid, #d1c6b4) !important;
+  padding: 0 !important;
+}
+
+/* --- Body Container --- */
+.baph-weather-body {
+  padding: 8px 10px;
+  font-family: var(--baph-font-body, 'Alegreya', serif);
+  color: var(--baph-ink-primary, #2a231d);
+}
+
+/* --- Sections --- */
+.baph-wui-section {
+  margin-bottom: 8px;
+}
+
+/* --- Current Weather Display --- */
+.baph-wui-current {
+  background: var(--baph-parchment-dark, #beb09b);
+  padding: 8px 10px;
+  border: 1px solid var(--baph-leather-mid, #8a7b66);
+  border-top: 3px solid var(--baph-brass, #9e7d43);
+  box-shadow: inset 0 2px 6px rgba(42, 35, 29, 0.12);
+}
+
+.baph-wui-date {
+  font-family: var(--baph-font-heading, 'Courier Prime', monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--baph-brass-readable, #846528);
+  margin-bottom: 4px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--baph-leather-mid, #8a7b66);
+}
+
+.baph-wui-temp {
+  font-size: 14px;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.baph-wui-high {
+  font-family: var(--baph-font-mono, 'IBM Plex Mono', monospace);
+  font-weight: 700;
+  color: var(--baph-ink-primary, #2a231d);
+}
+
+.baph-wui-sep {
+  color: var(--baph-ink-faint, #8a7b6e);
+  margin: 0 2px;
+}
+
+.baph-wui-low {
+  font-family: var(--baph-font-mono, 'IBM Plex Mono', monospace);
+  color: var(--baph-ink-secondary, #5e5246);
+}
+
+.baph-wui-tempdesc {
+  font-family: var(--baph-font-body, 'Alegreya', serif);
+  font-style: italic;
+  color: var(--baph-ink-secondary, #5e5246);
+  font-size: 12px;
+}
+
+.baph-wui-detail {
+  font-size: 12px;
+  color: var(--baph-ink-secondary, #5e5246);
+  line-height: 1.5;
+}
+
+.baph-wui-precip.active {
+  color: var(--baph-blood, #6e2a22);
+  font-weight: 600;
+}
+
+.baph-wui-clouds {
+  font-style: italic;
+}
+
+/* --- Notice (no SC / no weather) --- */
+.baph-wui-notice {
+  font-family: var(--baph-font-heading, 'Courier Prime', monospace);
+  font-size: 11px;
+  color: var(--baph-ink-faint, #8a7b6e);
+  text-align: center;
+  padding: 12px 6px;
+  line-height: 1.5;
+}
+
+/* --- Action Buttons Row --- */
+.baph-wui-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+/* --- Buttons (standard) --- */
+.baph-wui-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid var(--baph-leather-mid, #8a7b66);
+  border-radius: 0;
+  background: var(--baph-parchment-dark, #beb09b);
+  color: var(--baph-ink-primary, #2a231d);
+  font-family: var(--baph-font-heading, 'Courier Prime', monospace);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  box-shadow: inset 0 1px 0 rgba(232, 223, 208, 0.5),
+              inset 0 -1px 0 rgba(42, 35, 29, 0.15),
+              0 1px 2px rgba(42, 35, 29, 0.15);
+}
+
+.baph-wui-btn:hover {
+  background: var(--baph-parchment-light, #ddd3c0);
+  border-color: var(--baph-brass, #9e7d43);
+  color: var(--baph-brass-readable, #846528);
+}
+
+.baph-wui-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.baph-wui-btn i {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* --- Primary Button (Apply Zone) ---
+   Brass stamp — pressed into the page. */
+.baph-wui-btn-primary {
+  background: var(--baph-brass, #9e7d43);
+  color: var(--baph-parchment-bright, #e8dfd0);
+  border-color: var(--baph-leather-dark, #6b5c4a);
+  box-shadow: inset 0 2px 5px rgba(42, 35, 29, 0.3),
+              0 0 0 1px rgba(107, 92, 74, 0.3);
+}
+
+.baph-wui-btn-primary:hover {
+  background: var(--baph-brass-bright, #b8943e);
+  color: var(--baph-parchment-bright, #e8dfd0);
+  border-color: var(--baph-leather-dark, #6b5c4a);
+}
+
+/* --- Divider --- */
+.baph-wui-divider {
+  height: 1px;
+  background: var(--baph-leather-mid, #8a7b66);
+  margin: 8px 0;
+  opacity: 0.6;
+}
+
+/* --- Label --- */
+.baph-wui-label {
+  font-family: var(--baph-font-heading, 'Courier Prime', monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--baph-ink-secondary, #5e5246);
+  margin-bottom: 4px;
+}
+
+/* --- Select (Climate Zone) ---
+   Parchment field with leather border. Monospace for
+   mechanical feel. */
+.baph-wui-select {
+  width: 100%;
+  padding: 5px 6px;
+  border: 1px solid var(--baph-leather-mid, #8a7b66);
+  border-radius: 0;
+  background: var(--baph-parchment-bright, #e8dfd0);
+  color: var(--baph-ink-primary, #2a231d);
+  font-family: var(--baph-font-heading, 'Courier Prime', monospace);
+  font-size: 12px;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.baph-wui-select:focus {
+  border-color: var(--baph-brass, #9e7d43);
+  outline: none;
+  box-shadow: 0 0 0 1px var(--baph-brass, #9e7d43);
+}
+
+/* --- Zone Description --- */
+.baph-wui-zone-desc {
+  font-family: var(--baph-font-body, 'Alegreya', serif);
+  font-size: 11px;
+  font-style: italic;
+  color: var(--baph-ink-faint, #8a7b6e);
+  line-height: 1.4;
+  margin-bottom: 6px;
+  min-height: 28px;
+}
+
+/* --- Auto-Post Toggle Row --- */
+.baph-wui-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.baph-wui-toggle-row .baph-wui-label {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+/* --- Toggle Button ---
+   Same leather tag style as condition-overlay toggles. */
+.baph-wui-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--baph-leather-mid, #8a7b66);
+  border-radius: 0;
+  background: var(--baph-parchment-mid, #d1c6b4);
+  color: var(--baph-ink-secondary, #5e5246);
+  font-family: var(--baph-font-heading, 'Courier Prime', monospace);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: all 0.10s ease;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(232, 223, 208, 0.6),
+              inset 0 -1px 0 rgba(42, 35, 29, 0.15),
+              0 1px 2px rgba(42, 35, 29, 0.15);
+}
+
+.baph-wui-toggle:hover {
+  background: var(--baph-parchment-light, #ddd3c0);
+  border-color: var(--baph-brass, #9e7d43);
+  color: var(--baph-brass, #9e7d43);
+}
+
+.baph-wui-toggle.active {
+  background: var(--baph-brass, #9e7d43);
+  color: var(--baph-parchment-bright, #e8dfd0);
+  border-color: var(--baph-leather-dark, #6b5c4a);
+  box-shadow: inset 0 2px 5px rgba(42, 35, 29, 0.4);
+}

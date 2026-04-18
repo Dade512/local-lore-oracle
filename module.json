@@ -1,23 +1,34 @@
 {
-  "id": "local-lore-oracle",
-  "title": "Local Lore Oracle — Tasslequill's Desk",
-  "description": "A player-facing lore assistant powered by a local LLM via Ollama. Players type /lore in chat to consult Tasslequill Stumblebrook, a kender bard and self-proclaimed Chronicler of the Unwritten. Connects to an Ollama instance over Tailscale via OpenAI-compatible API.",
-  "version": "1.1.0",
+  "id": "baphomet-utils",
+  "title": "Baphomet Utils — Echoes of Baphomet's Fall",
+  "description": "Campaign utilities and Gaslamp Gothic theme for Echoes of Baphomet's Fall. Includes condition overlays, action tracker, roll card styler, custom XP progression, weather engine with GM config UI, and full Croaker's Ledger CSS theme for Foundry V13 + PF1e.",
+  "version": "2.9.0",
   "compatibility": {
     "minimum": "13",
     "verified": "13"
   },
-  "esmodules": [
-    "scripts/main.js"
-  ],
-  "styles": [
-    "styles/oracle.css"
-  ],
   "authors": [
     {
       "name": "Dade512"
     }
   ],
-  "manifest": "https://raw.githubusercontent.com/Dade512/local-lore-oracle/main/module.json",
-  "download": "https://github.com/Dade512/local-lore-oracle/archive/refs/heads/main.zip"
+  "styles": [
+    "styles/noir-theme.css",
+    "styles/action-tracker.css",
+    "styles/condition-overlay.css",
+    "styles/weather-ui.css"
+  ],
+  "scripts": [
+    "data/climate-zones.js",
+    "scripts/xp-progression.js",
+    "scripts/weather-engine.js",
+    "scripts/weather-ui.js",
+    "scripts/action-tracker.js",
+    "scripts/condition-overlay.js",
+    "scripts/roll-cards.js"
+  ],
+  "languages": [],
+  "flags": {},
+  "manifest": "https://github.com/Dade512/baphomet-utils/releases/latest/download/module.json",
+  "download": "https://github.com/Dade512/baphomet-utils/releases/latest/download/baphomet-utils.zip"
 }
