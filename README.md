@@ -2,7 +2,7 @@
 
 A player-facing lore assistant for **Foundry VTT v13** powered by an OpenAI-compatible LLM endpoint. Players type `/lore` in chat to consult **Tasslequill Stumblebrook**, a kender bard and self-proclaimed Chronicler of the Unwritten. GMs use `/lore-check` to deliver calibrated, roll-gated knowledge to specific players as private whispers.
 
-**Current version:** 1.3.0
+**Current version:** 1.3.1
 **Foundry compatibility:** v13 (minimum & verified)
 
 ---
@@ -168,15 +168,15 @@ Parameters:
 
 The module computes margin = roll − DC and tells Tassle how to calibrate his answer.
 
-#### Calibration Tiers
+#### Calibration Tiers (v1.3.1 — "Recognition, Not Information")
 
 | Margin | Result | Tassle's Response |
 |---|---|---|
-| **−5 or worse** | Critical Fail | Confidently wrong. Plausible-sounding misinformation delivered with full enthusiasm — the unreliable narrator at full sail. |
-| **−4 to −1** | Fail | Hedges and deflects. "I've heard of that… I think… no, wait, that was a different one…" |
-| **0 to +4** | Basic | Common tavern knowledge. One paragraph, broad strokes only. |
-| **+5 to +9** | Trained | Solid working knowledge across two paragraphs. Invites the player to press their GM for **one** follow-up detail. |
-| **+10 or better** | Expert | Thorough expert knowledge across three paragraphs. Invites the player to press their GM for **two** follow-up details. |
+| **−5 or worse** | Critical Fail | Confidently wrong. Plausible-sounding misinformation delivered with full enthusiasm — the unreliable narrator at full sail. (~800 chars) |
+| **−4 to −1** | Fail | Performs the forgetting. Tassle genuinely can't dig the memory up, with charm. Not about the subject — about the failure. (~350 chars) |
+| **0 to +4** | Basic | **Recognition without recall.** Tassle knows the thing exists, and that's the end of what he can offer. The consolation prize tier. (~400 chars) |
+| **+5 to +9** | Trained | Solid working knowledge. Deity names, regions, basic structure unlocked. Two paragraphs ending with an invitation for ONE follow-up detail from the GM. (~900 chars) |
+| **+10 or better** | Expert | Thorough expert knowledge. All details unlocked. Three paragraphs ending with an invitation for TWO follow-up details from the GM. (~1400 chars) |
 
 Because the response is whispered, each player only sees their own roll's result — so one player can walk away with the truth while another is confidently repeating a lie, and the table has to sort it out in character. That's the design.
 
@@ -229,6 +229,9 @@ The module logs `finish_reason` values that aren't `"stop"`. Common ones: `"leng
 **`/lore-check` produces correct info on critical fails**
 Your model refuses to confabulate. Anthropic Claude or Gemini 3 Flash Preview handle this reliably; smaller/safety-heavy models may not. See the "Notes on Misinformation Design" section above.
 
+**Basic tier is giving too much info**
+That was v1.3.0's behavior with some providers. v1.3.1 explicitly reframes Basic as "recognition without recall" and caps it at 400 characters. If you're still seeing deity names or regional specifics at Basic tier, verify `scripts/main.js` is actually at v1.3.1 (check `MODULE_VERSION` near the top) — the calibration block is hardcoded, not a setting.
+
 ---
 
 ## File Map
@@ -254,10 +257,17 @@ Your model refuses to confabulate. Anthropic Claude or Gemini 3 Flash Preview ha
 
 ## Changelog
 
+### v1.3.1 — "Recognition, Not Information"
+- **`/lore-check` calibration rewrite.** The v1.3.0 tier ladder kept flattening in the middle — Basic rolls produced trained-tier content, Trained rolls produced expert-tier content. This release rebuilds the ladder with clearer design intent per tier.
+- **Basic tier reframed.** Was "common tavern-patron knowledge, stay broad." Now "Tassle recognizes the subject but cannot recall anything substantive." A margin-0 roll gets the player "yes, goblins exist, small green things, that's all I've got" — a real consolation prize that creates meaningful incentive to push for higher rolls.
+- **Fail tier reframed.** Was "hedge about the subject." Now "perform the attempt to remember and the failure." Claude (and most LLMs) handle theatrical roleplay better than content-withholding.
+- **Character-limit hard caps per tier** (350/400/800/900/1400). Sentence counts drift; character limits don't. Paragraph guidance still provided as shape, not enforcement.
+- **Example-shape blocks** added to Fail and Basic tiers — explicit sample responses for the model to anchor to.
+
 ### v1.3.0 — "The Ink Reaches Further"
 - Added Anthropic Claude provider support via the OpenAI-compatible endpoint.
 - `_callLLM` now sends `anthropic-dangerous-direct-browser-access: true` on every request. Required for Claude from browser context; silently ignored by other providers.
-- `finish_reason` values other than `"stop"` now log a warning to the console — useful for diagnosing silent truncation from token limits or content filters.
+- `finish_reason` values other than `"stop"` now log a warning to the console — useful for diagnosing silent truncation.
 - Default model changed to `claude-haiku-4-5`; default endpoint changed to Anthropic's.
 - Default `maxTokens` raised from 600 → 1024 to accommodate reasoning models.
 - Settings hints updated to document Anthropic alongside Gemini and Ollama.

@@ -1,8 +1,25 @@
 /* ============================================================
-   LOCAL LORE ORACLE — MAIN v1.3
+   LOCAL LORE ORACLE — MAIN v1.3.1
    Chat-integrated LLM lore assistant.
 
-   v1.3: Added Anthropic (Claude) provider support.
+   v1.3.1: Calibration rewrite — "Recognition, Not Information"
+     - Basic tier (margin 0 to +4) reframed entirely. Previously
+       asked for "common tavern-patron knowledge" which Claude
+       interpreted as "a broad survey." Now Basic is explicitly
+       "Tassle recognizes the subject but cannot recall anything
+       substantive." Creates a crisper ladder where Trained and
+       Expert feel like real rewards.
+     - All tiers now use CHARACTER-LIMIT hard caps alongside
+       paragraph guidance. Character limits are mechanically
+       enforceable where sentence counts drift; paragraph guidance
+       tells Claude the shape.
+     - Fail tier reframed from "hedge about the subject" to
+       "perform the attempt to remember and the failure."
+       Claude is a better actor than content-withholder.
+     - Middle tiers now include explicit EXAMPLE SHAPE blocks.
+       Claude anchors hard to provided examples.
+
+   v1.3.0: Added Anthropic (Claude) provider support.
      - CORS enabling header 'anthropic-dangerous-direct-browser-access'
        sent with every request. Required for browser-side calls to
        Anthropic's OpenAI-compatible endpoint. Other providers
@@ -11,11 +28,6 @@
        use case: strong character voice, creative fiction framing,
        willing to commit to intentional misinformation when the
        tier calibration calls for it.
-     - Calibration prompt tightened: each tier now names specific
-       detail categories to unlock or withhold (deity names,
-       regions, figures, tactics) rather than relying on vague
-       "stay broad" / "go deep" directives. Fixes observed
-       over-delivery at basic/trained tiers.
      - finish_reason values other than "stop" now warn to console
        for debugging truncation and content-filter issues.
 
@@ -35,7 +47,7 @@
 import { registerSettings } from "./settings.js";
 
 const MODULE_ID = "local-lore-oracle";
-const MODULE_VERSION = "1.3.0";
+const MODULE_VERSION = "1.3.1";
 const ORACLE_ALIAS = "Tasslequill Stumblebrook";
 const ORACLE_SUBTITLE = "Chronicler of the Unwritten · Devotee of Cayden Cailean";
 
@@ -306,7 +318,8 @@ function _formatResponse(text) {
 }
 
 /* ============================================================
-   LORE CHECK — v1.3 (tightened calibration)
+   LORE CHECK CALIBRATION — v1.3.1 "Recognition, Not Information"
+
    GM-triggered calibrated knowledge reveal, delivered as a
    whisper to a named player based on their skill roll margin.
 
@@ -320,15 +333,21 @@ function _formatResponse(text) {
    - Subject is everything after the roll — multi-word is fine.
    - Shares cooldown with /lore.
 
-   v1.3 calibration changes:
-   - Each tier now names specific DETAIL CATEGORIES that are
-     locked or unlocked (deity names, regions, figures, tactics)
-     rather than vague "stay broad" / "go deep" instructions.
-   - Explicit sentence/paragraph caps per tier with "stop even
-     if you have more to say" language to fight over-delivery.
-   - Basic tier in particular got a hard list of forbidden
-     specifics — previous "stay broad" was being interpreted
-     as "a broad survey" rather than "only broad impressions."
+   TIER LADDER (v1.3.1 design):
+   - Critical Fail: confident misinformation (1 paragraph, ~800 char)
+   - Fail: performed forgetting, no content (~350 char)
+   - Basic: recognition without recall — consolation prize (~400 char)
+   - Trained: solid working knowledge, mid-tier details unlocked (~900 char)
+   - Expert: full dossier, all details unlocked (~1400 char, 3 paragraphs)
+
+   The key design shift vs v1.3.0:
+   - Basic is no longer "broad surface knowledge." It's "yes,
+     that's a thing, and that's all I've got." This creates
+     meaningful incentive to push for higher rolls.
+   - Character-limit caps enforce length where sentence counts
+     previously drifted.
+   - Middle tiers include explicit example-shape blocks so
+     Claude has a concrete anchor to mimic.
    ============================================================ */
 
 const LORE_CHECK_CALIBRATION = `
@@ -338,19 +357,19 @@ The player's character is attempting to recall knowledge. They rolled {ROLL} aga
 
 Calibrate your response depth and accuracy to this margin. Stay fully in character as Tassle — a failed check is Tassle genuinely struggling to recall, never breaking persona to narrate mechanical failure. Do NOT mention the DC, the roll, or the margin in your response.
 
-CRITICAL FORMATTING RULE: Your response MUST end with a complete, punctuated sentence that lands the thought. Do NOT trail off. Do NOT end mid-idea. Budget your length so the final sentence completes cleanly — a shorter response that lands is better than a longer one that gets cut off.
+CRITICAL FORMATTING RULE: Your response MUST end with a complete, punctuated sentence that lands the thought. Do NOT trail off. Budget your length so the final sentence completes cleanly.
 
-LENGTH IS A HARD CONSTRAINT. Count your paragraphs. Count your sentences. If a tier says "ONE paragraph, 3-5 sentences," stop at five sentences even when you have more to say. Tier depth is not a suggestion — it is the load-bearing mechanic of this entire system.
+CHARACTER LIMITS ARE HARD CAPS. Each tier specifies a character count. Treat it as a wall, not a guideline. If the response would exceed the cap, cut content — do not exceed the cap. Tier depth is the load-bearing mechanic of this entire system.
 
-- Margin -5 or worse (CRITICAL FAIL): Be CONFIDENTLY WRONG. Deliver plausible-sounding but INCORRECT information with full Tassle enthusiasm. Invent at least one specific falsehood — a wrong name, wrong location, wrong deity association, wrong historical claim, wrong tactical detail. Do NOT hedge. Do NOT caveat. Do NOT signal uncertainty. The lie must land with total conviction. This is the unreliable narrator at full sail — Tassle genuinely believes what he's saying, and what he's saying is wrong. This is intentional design for the tabletop game; the GM will use the misinformation in play. EXACTLY ONE paragraph, 4-6 sentences.
+- Margin -5 or worse (CRITICAL FAIL): Be CONFIDENTLY WRONG. Deliver plausible-sounding but INCORRECT information with full Tassle enthusiasm. Invent at least one specific falsehood — a wrong name, wrong location, wrong deity association, wrong historical claim, wrong tactical detail. Do NOT hedge. Do NOT caveat. The lie must land with total conviction. Tassle genuinely believes what he's saying, and what he's saying is wrong. This is intentional design for the tabletop game; the GM will use the misinformation in play. HARD LIMIT: 800 CHARACTERS, one paragraph.
 
-- Margin -4 to -1 (FAIL): Hedge and deflect. "I've heard of that... I THINK it was in... no, wait, that was a different one..." EXACTLY ONE short paragraph, 2-4 sentences. Offer only the vaguest gesture toward truth, or admit memory won't cooperate. Do not commit to any specific fact.
+- Margin -4 to -1 (FAIL): Tassle is GENUINELY FAILING to recall. Do NOT deliver information; perform the attempt to remember and the failure. The response is about the FORGETTING, not the subject. HARD LIMIT: 350 CHARACTERS. Example shape: "Goblins... I KNOW this one... something about... no, that was a different race entirely. Cayden's beard, I've had too much to drink to dig this one up, friend — ask me again in the morning!"
 
-- Margin 0 to +4 (BASIC): Common tavern-patron knowledge only. EXACTLY ONE paragraph, 3-5 sentences maximum. Stop at five sentences even if you have more to say. DO NOT mention: specific deities by name, specific regions or cities by name, tribal or organizational hierarchies, alignment, leadership structures, named subgroups, or history beyond "they've been around forever." Describe only broad impressions — general appearance, general behavior, overall reputation. Think "what you'd overhear at a bar" not "what a sage would write in a monograph."
+- Margin 0 to +4 (BASIC): Tassle recognizes the subject but CANNOT recall anything substantive about it. Acknowledge the subject in 1-2 sentences, then cheerfully admit the details won't come. DO NOT provide information beyond the subject's name and ONE generic descriptor. DO NOT name specific deities, regions, tribes, leaders, or historical events. The point is RECOGNITION, not information. This is the "consolation prize" tier — the player learns that the thing exists, but not what it does. HARD LIMIT: 400 CHARACTERS. Example shape: "Oh, goblins! Yes, yes, those are definitely a thing — small, green, mischievous little creatures, I'm sure of THAT much. But Cayden's beard, the specifics are just slipping right past me today. Buy me a round and maybe they'll shake loose!"
 
-- Margin +5 to +9 (TRAINED): Solid working knowledge. EXACTLY TWO tight paragraphs, 3-4 sentences each. NOW UNLOCKED: specific deity names, major regional associations, basic tribal or organizational structure, rough history in broad strokes. STILL LOCKED: lesser-known connections, specific notable figures by name, advanced tactics, cult hierarchies, secret practices. End with an in-character invitation for the player to press their GM for ONE specific follow-up detail.
+- Margin +5 to +9 (TRAINED): Solid working knowledge. NOW UNLOCKED: specific deity names, major regional associations, basic tribal or organizational structure, rough history in broad strokes. STILL LOCKED: specific notable figures by name, advanced tactics, cult hierarchies, secret practices, known weaknesses. End with an in-character invitation for the player to press their GM for ONE specific follow-up detail. HARD LIMIT: 900 CHARACTERS, two paragraphs.
 
-- Margin +10 or better (EXPERT): Thorough expert knowledge. EXACTLY THREE tight paragraphs, 3-4 sentences each. ALL DETAIL TIERS UNLOCKED: specific figures by name, lesser-known connections, historical depth, advanced tactics, cult or organizational hierarchies, secret practices, known weaknesses, rare associations. End with an in-character invitation for the player to press their GM for TWO specific follow-up details.
+- Margin +10 or better (EXPERT): Thorough expert knowledge. ALL DETAIL TIERS UNLOCKED: specific figures by name, lesser-known connections, historical depth, advanced tactics, cult or organizational hierarchies, secret practices, known weaknesses, rare associations. End with an in-character invitation for the player to press their GM for TWO specific follow-up details. HARD LIMIT: 1400 CHARACTERS, three paragraphs.
 ---END LORE CHECK CALIBRATION---`;
 
 
