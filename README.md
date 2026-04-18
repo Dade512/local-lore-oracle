@@ -2,7 +2,7 @@
 
 A player-facing lore assistant for **Foundry VTT v13** powered by an OpenAI-compatible LLM endpoint. Players type `/lore` in chat to consult **Tasslequill Stumblebrook**, a kender bard and self-proclaimed Chronicler of the Unwritten. GMs use `/lore-check` to deliver calibrated, roll-gated knowledge to specific players as private whispers.
 
-**Current version:** 1.2.0
+**Current version:** 1.3.0
 **Foundry compatibility:** v13 (minimum & verified)
 
 ---
@@ -23,21 +23,28 @@ Activate in **Manage Modules** and configure below.
 
 The module talks to any OpenAI-compatible `/v1/chat/completions` endpoint. It has been tested with:
 
-| Provider | Endpoint | Auth |
-|---|---|---|
-| **Google Gemini** (recommended) | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` | API key (Bearer) |
-| **Ollama** (local) | `http://<tailscale-ip>:11434/v1/chat/completions` | None — leave key blank |
-| **OpenAI** | `https://api.openai.com/v1/chat/completions` | API key (Bearer) |
+| Provider | Endpoint | Auth | Notes |
+|---|---|---|---|
+| **Anthropic Claude** (recommended) | `https://api.anthropic.com/v1/chat/completions` | API key (Bearer) | Best character voice and creative fiction handling |
+| **Google Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` | API key (Bearer) | Free tier available; watch thinking-token budgets on 2.5+ |
+| **OpenAI** | `https://api.openai.com/v1/chat/completions` | API key (Bearer) | Untested but should work |
+| **Ollama** (local) | `http://<host>:11434/v1/chat/completions` | None — leave key blank | Offline, private; requires a capable GPU |
 
 Authentication is conditional: if the API key field is populated, the module sends `Authorization: Bearer <key>`. If blank, no auth header is sent, which is what Ollama wants.
 
+The module always sends the `anthropic-dangerous-direct-browser-access: true` header, required for Anthropic's API from a browser context. Other providers silently ignore the unknown header.
+
 ---
 
-## Setup — Gemini (Recommended)
+## Setup — Anthropic Claude (Recommended)
 
-### 1. Get a Gemini API Key
+Claude is the strongest fit for Tassle: consistent character voice, creative fiction framing, and willingness to commit to intentional misinformation when the `/lore-check` critical-fail tier calls for it.
 
-Generate one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). A single key works for all Gemini models — model selection happens in the request body, not the key.
+### 1. Get an API Key
+
+Sign up at [console.anthropic.com](https://console.anthropic.com). Verify your phone, add a payment method, and load some credits ($10 lasts a typical campaign a long time). Create an API key under **API Keys** — it starts with `sk-ant-`. Copy it immediately; it won't be shown again.
+
+**Strongly recommended:** Set a monthly spend cap under **Limits** (e.g. $20/month) as a safety net against runaway loops.
 
 ### 2. Configure in Foundry
 
@@ -45,11 +52,11 @@ Generate one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
 | Setting | Value |
 |---|---|
-| API Endpoint | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` |
-| API Key | Your Google AI Studio key |
-| Model | `gemini-2.5-flash` (default) — or `gemini-3-flash` for better instruction-following |
+| API Endpoint | `https://api.anthropic.com/v1/chat/completions` |
+| API Key | Your Anthropic key (`sk-ant-...`) |
+| Model | `claude-haiku-4-5` (default) |
 | Temperature | `0.80` |
-| Max Tokens | `600` |
+| Max Tokens | `1024` |
 | Cooldown | `15` (seconds between queries) |
 
 ### 3. Load the Knowledge Base
@@ -62,14 +69,41 @@ Generate one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
 Tassle is ready. Players type `/lore <question>` to consult him.
 
+### Cost Expectations
+
+Claude Haiku 4.5 is priced at $1/M input tokens and $5/M output tokens. A typical Tassle query (~4K input, ~700 output) costs about three-quarters of a cent. A 120-session campaign at 25 queries per session runs roughly $23 total. Orders of magnitude cheaper than buying everyone pizza.
+
+### Security Caveat
+
+The `anthropic-dangerous-direct-browser-access` header is named that way for a reason: the API key is stored in Foundry's world settings and sent from the GM's browser on every call. Anyone with GM-level access to your world can inspect module settings and extract the key. For a homebrew game with trusted friends this is fine. The monthly spend cap is your safety net either way.
+
+For public-facing deployments, you'd want a server-side proxy. For a home campaign, you're good.
+
+---
+
+## Setup — Gemini
+
+A solid free-tier alternative. Good for character voice, but thinking-token budgets on Gemini 2.5+ models can cause mid-sentence truncation if `Max Tokens` is too low.
+
+### 1. Get an API Key
+
+Generate one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). A single key works for all Gemini models.
+
+### 2. Configure in Foundry
+
+| Setting | Value |
+|---|---|
+| API Endpoint | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` |
+| API Key | Your Google AI Studio key |
+| Model | `gemini-2.5-flash` or `gemini-3.1-flash-lite-preview` |
+| Max Tokens | `1024` or higher — thinking models need headroom |
+
 ### Model Notes
 
-- **Gemini 2.5 Flash** — current default. Stable, no announced deprecation.
-- **Gemini 3 Flash** — current-gen Flash. Better instruction adherence; recommended upgrade target.
-- **Gemini 3.1 Flash-Lite** — cheapest option, may sacrifice some persona consistency.
+- **Gemini 3.1 Flash-Lite Preview** — cheapest option, defaults to minimal thinking. Good persona but may refuse to commit to critical-fail misinformation.
+- **Gemini 3 Flash Preview** — Pro-grade intelligence; defaults to high thinking (may truncate if max_tokens is too low). Add `reasoning_effort: "minimal"` for cleaner output.
+- **Gemini 2.5 Flash** — stable, no announced deprecation.
 - **Gemini 2.0 Flash** — deprecates June 1, 2026. Do not use.
-
-Changing models is a single config string change — no code edits.
 
 ---
 
@@ -90,7 +124,7 @@ ollama list
 
 | Setting | Value |
 |---|---|
-| API Endpoint | `http://<your-pc-ip>:11434/v1/chat/completions` |
+| API Endpoint | `http://<your-host-ip>:11434/v1/chat/completions` |
 | API Key | *(leave blank)* |
 | Model | `gemma4:e4b` |
 
@@ -148,7 +182,7 @@ Because the response is whispered, each player only sees their own roll's result
 
 #### Notes on Misinformation Design
 
-The critical-fail tier is intentional. Tassle is an unreliable narrator by character design — his flaws are features, not bugs. If your table prefers a softer outcome, change the critical-fail instruction in the `LORE_CHECK_CALIBRATION` constant at the bottom of `scripts/main.js`.
+The critical-fail tier is intentional. Tassle is an unreliable narrator by character design — his flaws are features, not bugs. **Model matters here:** Claude and larger models reliably commit to the lie; smaller cost-efficient models (e.g. Flash-Lite tiers) may refuse and produce technically-correct responses instead. If your table prefers a softer outcome, change the critical-fail instruction in the `LORE_CHECK_CALIBRATION` constant at the bottom of `scripts/main.js`.
 
 ---
 
@@ -181,19 +215,19 @@ The Oracle is architecturally firewalled to prevent meta-knowledge leaks:
 
 ---
 
-## Hardware Requirements
+## Troubleshooting
 
-Cloud providers (Gemini, OpenAI) have no local requirements — any machine can run Foundry and consult the Oracle.
+**"Failed to fetch" error**
+Usually CORS. This module sends `anthropic-dangerous-direct-browser-access: true` which enables Anthropic's browser-side calls. If you're on a provider with stricter CORS, you'll need a local proxy. Check browser console (F12) for the actual error.
 
-For Ollama:
+**Mid-sentence truncation**
+The model hit the output token ceiling. Increase **Max Response Tokens** in settings. For reasoning models (Gemini 2.5+, Claude with extended thinking enabled), the thinking tokens share the budget — bump to 2048+ if needed.
 
-| Setup | Model | VRAM/RAM | Response Time |
-|---|---|---|---|
-| **Recommended:** RX 6800 XT or better | `gemma4:e4b` | 6 GB VRAM | 2–4 seconds |
-| Mid-range GPU (8 GB+) | `gemma4:e4b` | 6 GB VRAM | 2–5 seconds |
-| CPU-only (32 GB RAM) | `gemma4:e4b` | ~10 GB RAM | 8–12 seconds |
-| Lightweight / laptop | `gemma3:4b` | ~3 GB RAM | 5–15 seconds |
-| Minimal | `gemma3:1b` | ~1.5 GB RAM | 2–5 seconds |
+**Non-normal finish_reason warning in console**
+The module logs `finish_reason` values that aren't `"stop"`. Common ones: `"length"` means token ceiling, `"content_filter"` means safety system blocked output, others are provider-specific. Useful for diagnosing silent truncation.
+
+**`/lore-check` produces correct info on critical fails**
+Your model refuses to confabulate. Anthropic Claude or Gemini 3 Flash Preview handle this reliably; smaller/safety-heavy models may not. See the "Notes on Misinformation Design" section above.
 
 ---
 
@@ -219,6 +253,15 @@ For Ollama:
 ---
 
 ## Changelog
+
+### v1.3.0 — "The Ink Reaches Further"
+- Added Anthropic Claude provider support via the OpenAI-compatible endpoint.
+- `_callLLM` now sends `anthropic-dangerous-direct-browser-access: true` on every request. Required for Claude from browser context; silently ignored by other providers.
+- `finish_reason` values other than `"stop"` now log a warning to the console — useful for diagnosing silent truncation from token limits or content filters.
+- Default model changed to `claude-haiku-4-5`; default endpoint changed to Anthropic's.
+- Default `maxTokens` raised from 600 → 1024 to accommodate reasoning models.
+- Settings hints updated to document Anthropic alongside Gemini and Ollama.
+- README expanded with per-provider setup, cost math, troubleshooting, and security caveats.
 
 ### v1.2.0 — "A Private Consultation"
 - Added `/lore-check` GM command: calibrated whispered lore based on skill roll margin.

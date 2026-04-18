@@ -1,10 +1,26 @@
 /* ============================================================
-   LOCAL LORE ORACLE — MAIN v1.1
+   LOCAL LORE ORACLE — MAIN v1.3
    Chat-integrated LLM lore assistant.
 
+   v1.3: Added Anthropic (Claude) provider support.
+     - CORS enabling header 'anthropic-dangerous-direct-browser-access'
+       sent with every request. Required for browser-side calls to
+       Anthropic's OpenAI-compatible endpoint. Other providers
+       (Gemini, OpenAI, Ollama) ignore the unknown header.
+     - Claude Haiku 4.5 is the recommended model for Tassle's
+       use case: strong character voice, creative fiction framing,
+       willing to commit to intentional misinformation when the
+       tier calibration calls for it.
+
+   v1.2: Added /lore-check GM command — calibrated whispered lore
+     based on skill roll margin. Five-tier calibration system
+     from critical fail (confidently wrong) to expert (full detail
+     + follow-up questions). _callLLM gained optional calibration
+     parameter; existing /lore behavior unchanged.
+
    v1.1: Added API key support for cloud providers (Gemini, 
-   OpenAI). Bearer token sent when API key is configured.
-   Ollama (no key) still works — just leave the key blank.
+     OpenAI). Bearer token sent when API key is configured.
+     Ollama (no key) still works — just leave the key blank.
 
    For Foundry VTT v13
    ============================================================ */
@@ -12,6 +28,7 @@
 import { registerSettings } from "./settings.js";
 
 const MODULE_ID = "local-lore-oracle";
+const MODULE_VERSION = "1.3.0";
 const ORACLE_ALIAS = "Tasslequill Stumblebrook";
 const ORACLE_SUBTITLE = "Chronicler of the Unwritten · Devotee of Cayden Cailean";
 
@@ -55,7 +72,7 @@ Answer using the knowledge context when available. Supplement with general Golar
    ---------------------------------------------------------- */
 
 Hooks.once("init", () => {
-  console.log(`${MODULE_ID} | Initializing Local Lore Oracle v1.1`);
+  console.log(`${MODULE_ID} | Initializing Local Lore Oracle v${MODULE_VERSION}`);
   registerSettings();
 });
 
@@ -65,11 +82,11 @@ Hooks.once("ready", () => {
     game.settings.set(MODULE_ID, "systemPrompt", DEFAULT_SYSTEM_PROMPT);
     console.log(`${MODULE_ID} | Default system prompt installed`);
   }
-  console.log(`${MODULE_ID} | Local Lore Oracle v1.1 ready — type /lore [question] in chat`);
+  console.log(`${MODULE_ID} | Local Lore Oracle v${MODULE_VERSION} ready — type /lore [question] in chat`);
 });
 
 /* ----------------------------------------------------------
-   CHAT INTERCEPTION
+   CHAT INTERCEPTION — /lore (public)
    ---------------------------------------------------------- */
 
 Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
@@ -97,7 +114,7 @@ Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
 });
 
 /* ----------------------------------------------------------
-   QUERY HANDLER
+   QUERY HANDLER — /lore
    ---------------------------------------------------------- */
 
 async function _handleOracleQuery(query) {
@@ -121,7 +138,21 @@ async function _handleOracleQuery(query) {
 
 /* ----------------------------------------------------------
    LLM API CALL
-   Supports both Ollama (no auth) and cloud APIs (Bearer token).
+   
+   Supports OpenAI-compatible endpoints for:
+   - Anthropic Claude (requires CORS header, see below)
+   - Google Gemini (natively CORS-enabled)
+   - OpenAI (natively CORS-enabled)
+   - Ollama (local, no auth, no CORS issues)
+
+   The 'anthropic-dangerous-direct-browser-access' header
+   enables browser-side calls to Anthropic's API. Other
+   providers silently ignore this unknown header, so it's
+   safe to include unconditionally.
+
+   The `calibration` parameter appends tier-specific
+   instructions to the system prompt (used by /lore-check).
+   Defaults to null, preserving /lore's existing behavior.
    ---------------------------------------------------------- */
 
 async function _callLLM(query, calibration = null) {
@@ -142,8 +173,15 @@ async function _callLLM(query, calibration = null) {
     max_tokens: maxTokens,
   };
 
-  // Build headers — add Authorization if API key is set
-  const headers = { "Content-Type": "application/json" };
+  // Build headers:
+  // - Content-Type: always
+  // - anthropic-dangerous-direct-browser-access: required for Claude
+  //   from browser context. Ignored by Gemini/OpenAI/Ollama.
+  // - Authorization: Bearer <key> when API key is configured
+  const headers = {
+    "Content-Type": "application/json",
+    "anthropic-dangerous-direct-browser-access": "true",
+  };
   if (apiKey) {
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
@@ -161,6 +199,12 @@ async function _callLLM(query, calibration = null) {
 
   const data = await response.json();
   const text = data.choices?.[0]?.message?.content;
+  const finishReason = data.choices?.[0]?.finish_reason;
+
+  // Log non-normal finish reasons for debugging (token limits, content filters, etc.)
+  if (finishReason && finishReason !== "stop") {
+    console.warn(`${MODULE_ID} | Non-normal finish_reason: ${finishReason}`);
+  }
 
   if (!text) {
     throw new Error("The Oracle returned an empty response.");
@@ -181,7 +225,7 @@ function _buildSystemPrompt() {
 }
 
 /* ----------------------------------------------------------
-   CHAT CARD BUILDERS
+   CHAT CARD BUILDERS — /lore (public)
    ---------------------------------------------------------- */
 
 function _buildThinkingCard(query) {
@@ -276,15 +320,17 @@ The player's character is attempting to recall knowledge. They rolled {ROLL} aga
 
 Calibrate your response depth and accuracy to this margin. Stay fully in character as Tassle — a failed check is Tassle genuinely struggling to recall, never breaking persona to narrate mechanical failure. Do NOT mention the DC, the roll, or the margin in your response.
 
-- Margin -5 or worse (CRITICAL FAIL): Be CONFIDENTLY WRONG. Deliver plausible-sounding but INCORRECT information with full Tassle enthusiasm. Invent at least one specific falsehood — a wrong name, wrong location, wrong deity association, wrong historical claim, wrong tactical detail. Do NOT hedge. Do NOT caveat. Do NOT signal uncertainty. The lie must land with total conviction. This is the unreliable narrator at full sail — Tassle genuinely believes what he's saying, and what he's saying is wrong. This is intentional design for the tabletop game; the GM will use the misinformation in play.
+CRITICAL FORMATTING RULE: Your response MUST end with a complete, punctuated sentence that lands the thought. Do NOT trail off. Do NOT end mid-idea. Do NOT start a new paragraph you cannot finish. Budget your length so the final sentence completes cleanly — a shorter response that lands is better than a longer one that gets cut off.
 
-- Margin -4 to -1 (FAIL): Hedge and deflect. "I've heard of that... I THINK it was in... no, wait, that was a different one..." Offer only the vaguest gesture toward truth, or admit the memory won't cooperate. Keep it to one short paragraph.
+- Margin -5 or worse (CRITICAL FAIL): Be CONFIDENTLY WRONG. Deliver plausible-sounding but INCORRECT information with full Tassle enthusiasm. Invent at least one specific falsehood — a wrong name, wrong location, wrong deity association, wrong historical claim, wrong tactical detail. Do NOT hedge. Do NOT caveat. Do NOT signal uncertainty. The lie must land with total conviction. This is the unreliable narrator at full sail — Tassle genuinely believes what he's saying, and what he's saying is wrong. This is intentional design for the tabletop game; the GM will use the misinformation in play. Keep to ONE tight paragraph.
 
-- Margin 0 to +4 (BASIC): Common, surface-level knowledge — the sort of thing any well-traveled tavern patron would know. One paragraph. Stay broad; don't get specific.
+- Margin -4 to -1 (FAIL): Hedge and deflect. "I've heard of that... I THINK it was in... no, wait, that was a different one..." Offer only the vaguest gesture toward truth, or admit the memory won't cooperate. ONE short paragraph.
 
-- Margin +5 to +9 (TRAINED): Solid working knowledge. Two paragraphs with names, places, basic associations, rough history. End with a flavored in-character invitation for the player to press their GM for ONE specific follow-up detail.
+- Margin 0 to +4 (BASIC): Common, surface-level knowledge — the sort of thing any well-traveled tavern patron would know. ONE paragraph. Stay broad; don't get specific.
 
-- Margin +10 or better (EXPERT): Thorough expert knowledge. Three paragraphs with specifics, lesser-known connections, historical depth, notable figures or tactics. End with a flavored in-character invitation for the player to press their GM for TWO specific follow-up details.
+- Margin +5 to +9 (TRAINED): Solid working knowledge. TWO tight paragraphs with names, places, basic associations, rough history. End with a flavored in-character invitation for the player to press their GM for ONE specific follow-up detail.
+
+- Margin +10 or better (EXPERT): Thorough expert knowledge. THREE tight paragraphs with specifics, lesser-known connections, historical depth, notable figures or tactics. End with a flavored in-character invitation for the player to press their GM for TWO specific follow-up details.
 ---END LORE CHECK CALIBRATION---`;
 
 

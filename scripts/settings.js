@@ -1,7 +1,8 @@
 /* ============================================================
-   LOCAL LORE ORACLE — SETTINGS v1.1
+   LOCAL LORE ORACLE — SETTINGS v1.3
    Module configuration for LLM endpoint, model, and prompts.
-   Supports both local Ollama and cloud APIs (Gemini, OpenAI).
+   Supports Anthropic Claude, Google Gemini, OpenAI, and Ollama
+   — any OpenAI-compatible /v1/chat/completions endpoint.
    ============================================================ */
 
 const MODULE_ID = "local-lore-oracle";
@@ -10,16 +11,16 @@ export function registerSettings() {
 
   game.settings.register(MODULE_ID, "apiEndpoint", {
     name: "API Endpoint URL",
-    hint: "Gemini: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions — Ollama: http://100.x.x.x:11434/v1/chat/completions",
+    hint: "Anthropic: https://api.anthropic.com/v1/chat/completions — Gemini: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions — Ollama: http://<host>:11434/v1/chat/completions",
     scope: "world",
     config: true,
     type: String,
-    default: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    default: "https://api.anthropic.com/v1/chat/completions",
   });
 
   game.settings.register(MODULE_ID, "apiKey", {
     name: "API Key",
-    hint: "For Gemini: your Google AI Studio API key. For Ollama: leave blank (no auth needed). Get a Gemini key at https://aistudio.google.com/apikey",
+    hint: "Anthropic key (sk-ant-...) from console.anthropic.com. Gemini key from aistudio.google.com/apikey. For Ollama: leave blank. Sent as Authorization: Bearer header.",
     scope: "world",
     config: true,
     type: String,
@@ -28,11 +29,11 @@ export function registerSettings() {
 
   game.settings.register(MODULE_ID, "modelName", {
     name: "Model Name",
-    hint: "Gemini: gemini-2.5-flash (recommended). Ollama: gemma4:e4b or gemma3:4b.",
+    hint: "Anthropic: claude-haiku-4-5 (recommended — strong character voice). Gemini: gemini-2.5-flash or gemini-3.1-flash-lite-preview. Ollama: gemma4:e4b or gemma3:4b.",
     scope: "world",
     config: true,
     type: String,
-    default: "gemini-2.5-flash",
+    default: "claude-haiku-4-5",
   });
 
   game.settings.register(MODULE_ID, "systemPrompt", {
@@ -55,7 +56,7 @@ export function registerSettings() {
 
   game.settings.register(MODULE_ID, "temperature", {
     name: "Temperature",
-    hint: "Response creativity. 0.75–0.85 is good for Tassle's personality.",
+    hint: "Response creativity. 0.75–0.85 is good for Tassle's personality. Claude handles higher values more coherently than most models.",
     scope: "world",
     config: true,
     type: Number,
@@ -65,17 +66,17 @@ export function registerSettings() {
 
   game.settings.register(MODULE_ID, "maxTokens", {
     name: "Max Response Tokens",
-    hint: "Maximum response length. 500–700 gives 2–4 paragraph answers.",
+    hint: "Maximum response length. 1024 is a safe default. Reasoning models (Gemini 2.5+, Claude with extended thinking) may need 2048+ since thinking tokens share this budget.",
     scope: "world",
     config: true,
     type: Number,
-    default: 600,
-    range: { min: 128, max: 2048, step: 64 },
+    default: 1024,
+    range: { min: 128, max: 4096, step: 128 },
   });
 
   game.settings.register(MODULE_ID, "cooldownSeconds", {
     name: "Cooldown (seconds)",
-    hint: "Minimum time between /lore queries. Prevents spam. 0 to disable.",
+    hint: "Minimum time between /lore and /lore-check queries. Prevents spam. 0 to disable.",
     scope: "world",
     config: true,
     type: Number,
