@@ -124,13 +124,13 @@ async function _handleOracleQuery(query) {
    Supports both Ollama (no auth) and cloud APIs (Bearer token).
    ---------------------------------------------------------- */
 
-async function _callLLM(query) {
+async function _callLLM(query, calibration = null) {
   const endpoint = game.settings.get(MODULE_ID, "apiEndpoint");
   const apiKey = game.settings.get(MODULE_ID, "apiKey");
   const model = game.settings.get(MODULE_ID, "modelName");
   const temperature = game.settings.get(MODULE_ID, "temperature");
   const maxTokens = game.settings.get(MODULE_ID, "maxTokens");
-  const systemPrompt = _buildSystemPrompt();
+  const systemPrompt = _buildSystemPrompt() + (calibration ?? "");
 
   const payload = {
     model,
@@ -251,4 +251,175 @@ function _formatResponse(text) {
     .map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`)
     .join("");
   return paragraphs || `<p>${text}</p>`;
+}
+
+/* ============================================================
+   LORE CHECK — v1.2
+   GM-triggered calibrated knowledge reveal, delivered as a
+   whisper to a named player based on their skill roll margin.
+
+   Syntax:  /lore-check <player> <DC> <roll> <subject...>
+   Example: /lore-check Michael 15 22 baphomet cult rituals
+
+   - GM-only. Players running it get warned and blocked.
+   - Player name is a single token (no spaces). Case-insensitive
+     exact match against game.users.
+   - DC and roll are integers. Margin is computed as roll − DC.
+   - Subject is everything after the roll — multi-word is fine.
+   - Shares cooldown with /lore.
+   ============================================================ */
+
+const LORE_CHECK_CALIBRATION = `
+
+---LORE CHECK CALIBRATION (this query only)---
+The player's character is attempting to recall knowledge. They rolled {ROLL} against DC {DC}, a margin of {MARGIN}.
+
+Calibrate your response depth and accuracy to this margin. Stay fully in character as Tassle — a failed check is Tassle genuinely struggling to recall, never breaking persona to narrate mechanical failure. Do NOT mention the DC, the roll, or the margin in your response.
+
+- Margin -5 or worse (CRITICAL FAIL): Be CONFIDENTLY WRONG. Deliver plausible-sounding but INCORRECT information with full Tassle enthusiasm. Invent at least one specific falsehood — a wrong name, wrong location, wrong deity association, wrong historical claim, wrong tactical detail. Do NOT hedge. Do NOT caveat. Do NOT signal uncertainty. The lie must land with total conviction. This is the unreliable narrator at full sail — Tassle genuinely believes what he's saying, and what he's saying is wrong. This is intentional design for the tabletop game; the GM will use the misinformation in play.
+
+- Margin -4 to -1 (FAIL): Hedge and deflect. "I've heard of that... I THINK it was in... no, wait, that was a different one..." Offer only the vaguest gesture toward truth, or admit the memory won't cooperate. Keep it to one short paragraph.
+
+- Margin 0 to +4 (BASIC): Common, surface-level knowledge — the sort of thing any well-traveled tavern patron would know. One paragraph. Stay broad; don't get specific.
+
+- Margin +5 to +9 (TRAINED): Solid working knowledge. Two paragraphs with names, places, basic associations, rough history. End with a flavored in-character invitation for the player to press their GM for ONE specific follow-up detail.
+
+- Margin +10 or better (EXPERT): Thorough expert knowledge. Three paragraphs with specifics, lesser-known connections, historical depth, notable figures or tactics. End with a flavored in-character invitation for the player to press their GM for TWO specific follow-up details.
+---END LORE CHECK CALIBRATION---`;
+
+
+Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
+  const trimmed = messageText.trim();
+  if (!trimmed.toLowerCase().startsWith("/lore-check ")) return true;
+
+  if (!game.user.isGM) {
+    ui.notifications.warn("Only the GM may invoke /lore-check.");
+    return false;
+  }
+
+  const parsed = _parseLoreCheckArgs(trimmed.slice(12).trim());
+  if (!parsed) return false; // parser already notified
+
+  const cooldown = game.settings.get(MODULE_ID, "cooldownSeconds") ?? 0;
+  const now = Date.now();
+  if (cooldown > 0 && (now - _lastQueryTime) < cooldown * 1000) {
+    const remaining = Math.ceil((cooldown * 1000 - (now - _lastQueryTime)) / 1000);
+    ui.notifications.warn(`Tassle is still pondering. Try again in ${remaining}s.`);
+    return false;
+  }
+  _lastQueryTime = now;
+
+  _handleLoreCheck(parsed);
+  return false;
+});
+
+
+function _parseLoreCheckArgs(args) {
+  const tokens = args.split(/\s+/).filter(Boolean);
+  if (tokens.length < 4) {
+    ui.notifications.warn("Usage: /lore-check <player> <DC> <roll> <subject>");
+    return null;
+  }
+
+  const [playerName, dcStr, rollStr, ...subjectTokens] = tokens;
+  const dc = parseInt(dcStr, 10);
+  const roll = parseInt(rollStr, 10);
+
+  if (Number.isNaN(dc) || Number.isNaN(roll)) {
+    ui.notifications.warn("DC and roll must be integers. Usage: /lore-check <player> <DC> <roll> <subject>");
+    return null;
+  }
+
+  const subject = subjectTokens.join(" ").trim();
+  if (!subject) {
+    ui.notifications.warn("Missing subject. Usage: /lore-check <player> <DC> <roll> <subject>");
+    return null;
+  }
+
+  const needle = playerName.toLowerCase();
+  const matches = game.users.filter(u => u.name.toLowerCase() === needle);
+
+  if (matches.length === 0) {
+    ui.notifications.warn(`No user named "${playerName}" found.`);
+    return null;
+  }
+  if (matches.length > 1) {
+    ui.notifications.warn(`Multiple users match "${playerName}". Use a more specific name.`);
+    return null;
+  }
+
+  return {
+    user: matches[0],
+    dc,
+    roll,
+    margin: roll - dc,
+    subject,
+  };
+}
+
+
+async function _handleLoreCheck({ user, dc, roll, margin, subject }) {
+  // Whisper to target player AND the GM (so GM sees Tassle's response)
+  const whisperTargets = [user.id, game.user.id];
+
+  const thinkingMsg = await ChatMessage.create({
+    speaker: { alias: ORACLE_ALIAS },
+    whisper: whisperTargets,
+    content: _buildLoreCheckThinkingCard(subject),
+  });
+
+  try {
+    const calibration = LORE_CHECK_CALIBRATION
+      .replace("{ROLL}", String(roll))
+      .replace("{DC}", String(dc))
+      .replace("{MARGIN}", margin >= 0 ? `+${margin}` : String(margin));
+
+    const userQuery = `Tell me what you know about: ${subject}`;
+    const response = await _callLLM(userQuery, calibration);
+
+    await thinkingMsg.update({
+      content: _buildLoreCheckResponseCard(subject, response),
+    });
+  } catch (error) {
+    console.error(`${MODULE_ID} | Lore check failed:`, error);
+    await thinkingMsg.update({
+      content: _buildErrorCard(subject, error.message),
+    });
+  }
+
+  console.log(`${MODULE_ID} | Lore check → ${user.name} | "${subject}" | ${roll} vs DC ${dc} (margin ${margin >= 0 ? "+" : ""}${margin})`);
+}
+
+
+function _buildLoreCheckThinkingCard(subject) {
+  return `
+    <div class="oracle-card oracle-thinking">
+      <div class="oracle-header">
+        <div class="oracle-name">${ORACLE_ALIAS}</div>
+        <div class="oracle-title">a private consultation · whispered</div>
+      </div>
+      <div class="oracle-query">"${_escapeHtml(subject)}"</div>
+      <div class="oracle-body oracle-pondering">
+        <i class="fas fa-spinner fa-pulse"></i>
+        Tassle leans close, lowers his voice, and thumbs through a well-worn notebook — the kind of book that has seen more taverns than libraries...
+      </div>
+    </div>
+  `;
+}
+
+
+function _buildLoreCheckResponseCard(subject, response) {
+  return `
+    <div class="oracle-card">
+      <div class="oracle-header">
+        <div class="oracle-name">${ORACLE_ALIAS}</div>
+        <div class="oracle-title">a private consultation · whispered</div>
+      </div>
+      <div class="oracle-query">"${_escapeHtml(subject)}"</div>
+      <div class="oracle-body">${_formatResponse(response)}</div>
+      <div class="oracle-footer">
+        <span class="oracle-ledger-mark">📜 From Tassle's Desk — for your eyes only</span>
+      </div>
+    </div>
+  `;
 }
