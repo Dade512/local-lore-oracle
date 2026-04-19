@@ -1,6 +1,26 @@
 /* ============================================================
-   LOCAL LORE ORACLE — MAIN v1.3.2
+   LOCAL LORE ORACLE — MAIN v1.3.3
    Chat-integrated LLM lore assistant.
+
+   v1.3.3: Calibration override preamble — "Voice vs Content"
+     - v1.3.2 fixed the architecture (one tier visible at a time)
+       but Critical Fail tier still regressed: at margin -10 the
+       model produced three confident, ACCURATE paragraphs of
+       Trained-tier content despite receiving the Critical Fail
+       instruction.
+     - Diagnosis: the calibration was being received but losing
+       to the system prompt's persona defaults. Persona says
+       "supremely confident, knowledgeable, 2-3 paragraphs default,
+       common folk knowledge OK" — Critical Fail asks the model to
+       deliver wrong info in 1 short paragraph. Model resolved
+       the conflict by following the persona and ignoring the tier.
+     - Fix: prepend an OVERRIDE preamble to CALIBRATION_HEADER
+       that explicitly partitions the system prompt into VOICE
+       (which still applies) and CONTENT (which the calibration
+       overrides). Includes explicit unreliable-narrator framing
+       so the model understands Critical Fail is a feature of the
+       persona, not a violation of it.
+     - No code logic changes — only the CALIBRATION_HEADER text.
 
    v1.3.2: Calibration architecture rewrite — "One Tier at a Time"
      - Tier is now selected in JavaScript (_selectTier function)
@@ -70,7 +90,7 @@
 import { registerSettings } from "./settings.js";
 
 const MODULE_ID = "local-lore-oracle";
-const MODULE_VERSION = "1.3.2";
+const MODULE_VERSION = "1.3.3";
 const ORACLE_ALIAS = "Tasslequill Stumblebrook";
 const ORACLE_SUBTITLE = "Chronicler of the Unwritten · Devotee of Cayden Cailean";
 
@@ -419,10 +439,24 @@ Write exactly 3 paragraphs of 3-4 sentences each. End the response with TWO in-c
 
 // Common header attached to every tier. Sets ground rules that
 // apply regardless of tier outcome.
+//
+// v1.3.3 "OVERRIDE" preamble: explicitly partitions the system
+// prompt into VOICE (always applies) and CONTENT (calibration
+// wins). Without this, Critical Fail and Fail tiers were getting
+// overridden by the persona's "2-3 paragraphs, supremely
+// confident, common folk knowledge OK" defaults.
 const CALIBRATION_HEADER = `
 
 ---LORE CHECK CALIBRATION (this query only)---
-Stay fully in character as Tassle. Do NOT mention any roll, any check, any DC, any margin, any tier name, or any meta-game concept. Do NOT begin the response with a header, label, or markdown title — begin in character. The response should read as Tassle speaking, nothing else.
+The instruction below describes the SHAPE of this single response. It OVERRIDES the system prompt's default response length, default confidence level, default content scope, and Rule 5's "common folk knowledge" carveout for this single response.
+
+The system prompt persona controls Tassle's VOICE: his exclamations, his tangents, his kender mannerisms, his Cayden Cailean references, his Accidental Ledger asides, his speech patterns. All of that still applies. Tassle still sounds like Tassle.
+
+The instruction below controls Tassle's CONTENT: what he can recall, how much he says, how accurate he is, and what specifics he is permitted to provide. When the two conflict — when the persona wants more length than the instruction allows, when the persona wants more confidence than the instruction allows, when the persona wants to share "common knowledge" the instruction has locked — the instruction below wins.
+
+Following the instruction below faithfully IS staying in character. Tassle is a famously unreliable narrator. His memory has excellent days and catastrophically bad days. Sometimes he confabulates with total conviction. Sometimes he can't recall things a child would know. The instruction below tells you which kind of day this is for this single subject.
+
+Do NOT mention any roll, any check, any DC, any margin, any tier name, or any meta-game concept. Do NOT begin the response with a header, label, or markdown title — begin in character. The response should read as Tassle speaking, nothing else.
 `;
 
 const CALIBRATION_FOOTER = `

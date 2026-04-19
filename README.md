@@ -2,7 +2,7 @@
 
 A player-facing lore assistant for **Foundry VTT v13** powered by an OpenAI-compatible LLM endpoint. Players type `/lore` in chat to consult **Tasslequill Stumblebrook**, a kender bard and self-proclaimed Chronicler of the Unwritten. GMs use `/lore-check` to deliver calibrated, roll-gated knowledge to specific players as private whispers.
 
-**Current version:** 1.3.2
+**Current version:** 1.3.3
 **Foundry compatibility:** v13 (minimum & verified)
 
 ---
@@ -259,6 +259,11 @@ This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at
 ---
 
 ## Changelog
+
+### v1.3.3 — "Voice vs Content"
+- **Override preamble added to calibration header.** v1.3.2 fixed the *architecture* (model only sees one tier at a time) but the Critical Fail tier still regressed under live testing — at margin -10 the model produced three confident, accurate paragraphs of Trained-tier content. Diagnosis: the calibration was being received but losing to the system prompt's persona defaults ("supremely confident, 2-3 paragraphs default, common folk knowledge OK"). The Critical Fail tier asks the model to do something the persona's defaults *resist* — deliver wrong info in one short paragraph — and the model resolved the conflict by following the persona.
+- **Fix.** The `CALIBRATION_HEADER` now opens with an explicit override preamble that partitions the system prompt into two halves: VOICE (always applies — Tassle's exclamations, tangents, mannerisms, Cayden references) and CONTENT (calibration wins — length, confidence level, what specifics are permitted). Includes explicit unreliable-narrator framing so the model understands Critical Fail is a *feature* of the persona, not a violation of it.
+- **No code logic changes.** Only the `CALIBRATION_HEADER` text changed. Tier constants, JS tier selection, and command surface are unchanged.
 
 ### v1.3.2 — "One Tier at a Time"
 - **Calibration architecture rewrite.** Tier is now selected in JavaScript (`_selectTier`) and ONLY that tier's instruction is injected into the prompt. The model never sees the full ladder, never sees tier labels like "BASIC" or "EXPERT", never sees the margin or DC. This eliminates three failure modes simultaneously:
