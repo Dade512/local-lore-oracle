@@ -2,7 +2,7 @@
 
 A player-facing lore assistant for **Foundry VTT v13** powered by an OpenAI-compatible LLM endpoint. Players type `/lore` in chat to consult **Tasslequill Stumblebrook**, a kender bard and self-proclaimed Chronicler of the Unwritten. GMs use `/lore-check` to deliver calibrated, roll-gated knowledge to specific players as private whispers.
 
-**Current version:** 1.3.1
+**Current version:** 1.3.2
 **Foundry compatibility:** v13 (minimum & verified)
 
 ---
@@ -168,7 +168,7 @@ Parameters:
 
 The module computes margin = roll − DC and tells Tassle how to calibrate his answer.
 
-#### Calibration Tiers (v1.3.1 — "Recognition, Not Information")
+#### Calibration Tiers (v1.3.2 — "One Tier at a Time")
 
 | Margin | Result | Tassle's Response |
 |---|---|---|
@@ -230,7 +230,10 @@ The module logs `finish_reason` values that aren't `"stop"`. Common ones: `"leng
 Your model refuses to confabulate. Anthropic Claude or Gemini 3 Flash Preview handle this reliably; smaller/safety-heavy models may not. See the "Notes on Misinformation Design" section above.
 
 **Basic tier is giving too much info**
-That was v1.3.0's behavior with some providers. v1.3.1 explicitly reframes Basic as "recognition without recall" and caps it at 400 characters. If you're still seeing deity names or regional specifics at Basic tier, verify `scripts/main.js` is actually at v1.3.1 (check `MODULE_VERSION` near the top) — the calibration block is hardcoded, not a setting.
+That was v1.3.0–v1.3.1's behavior with some providers. v1.3.2 restructured the calibration entirely — the model now sees ONLY the relevant tier's instruction (computed in JS), not the full ladder. Combined with explicit anti-common-knowledge framing for Basic and Fail tiers, iconic facts (troll/fire weakness, etc.) should stay locked. If you're still seeing leakage at Basic tier, verify `scripts/main.js` is actually at v1.3.2 (check `MODULE_VERSION` near the top).
+
+**Meta-headers in responses ("# Knowledge Check (Margin +X)")**
+This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at the player. v1.3.2 fixes it by never showing Claude the labels in the first place. If you see meta-headers on v1.3.2, that's a regression worth a thumbs-down to flag.
 
 ---
 
@@ -256,6 +259,15 @@ That was v1.3.0's behavior with some providers. v1.3.1 explicitly reframes Basic
 ---
 
 ## Changelog
+
+### v1.3.2 — "One Tier at a Time"
+- **Calibration architecture rewrite.** Tier is now selected in JavaScript (`_selectTier`) and ONLY that tier's instruction is injected into the prompt. The model never sees the full ladder, never sees tier labels like "BASIC" or "EXPERT", never sees the margin or DC. This eliminates three failure modes simultaneously:
+  - **Meta-header leak.** v1.3.1 sometimes produced responses starting with `# Knowledge Check (Margin +X = TIER)`. The model was parroting the labeled ladder it could see. With one tier visible at a time, there's nothing to parrot.
+  - **Tier drift.** Responses occasionally over- or under-delivered for their margin. Without a ladder to read, the model can't pick the wrong rung.
+  - **Common-knowledge leak.** Basic tier was leaking iconic facts (troll/fire weakness, goblin deity associations) because the model treated them as "common cultural literacy" exempt from calibration. Fail and Basic tiers now include explicit anti-common-knowledge framing: "even if it feels iconic, even if everyone learns this in childhood, the character's recall has failed."
+- **Length control switched from character caps to sentence/paragraph counts.** Character caps were a weak lever — Claude routinely exceeded them by 50-75%. Structural counts like "3-4 sentences" with explicit "Stop after the Nth sentence" rules are far more reliable.
+- **Calibration block now ships as five separate `TIER_*` constants** plus a common header/footer. Easier to tune one tier without rewriting everything.
+- **No user-facing command changes.** Same `/lore-check` syntax, same outputs, same whisper behavior.
 
 ### v1.3.1 — "Recognition, Not Information"
 - **`/lore-check` calibration rewrite.** The v1.3.0 tier ladder kept flattening in the middle — Basic rolls produced trained-tier content, Trained rolls produced expert-tier content. This release rebuilds the ladder with clearer design intent per tier.

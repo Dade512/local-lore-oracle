@@ -1,6 +1,29 @@
 /* ============================================================
-   LOCAL LORE ORACLE — MAIN v1.3.1
+   LOCAL LORE ORACLE — MAIN v1.3.2
    Chat-integrated LLM lore assistant.
+
+   v1.3.2: Calibration architecture rewrite — "One Tier at a Time"
+     - Tier is now selected in JavaScript (_selectTier function)
+       and ONLY that tier's instruction is injected into the
+       system prompt. Claude never sees the full ladder, the
+       tier label, the margin number, or the DC.
+     - This fixes the meta-header leak (Claude was parroting
+       "# Knowledge Check (Margin +15 = EXPERT TIER)" because
+       it could see the labeled ladder structure).
+     - This also fixes tier drift — Claude can't accidentally
+       pick the wrong rung if it never sees the ladder.
+     - Length control switched from CHARACTER caps to SENTENCE
+       and PARAGRAPH counts, plus explicit STOP instructions.
+       Claude reliably obeys structural counts ("2 paragraphs
+       of 3-4 sentences") but ignores numeric character caps.
+     - Added anti-common-knowledge guardrail to Fail and Basic
+       tiers: "even if the subject seems like common knowledge,
+       even if Tassle would obviously know it, the CHARACTER
+       failed to recall." This addresses the case where Claude
+       was leaking iconic facts (troll/fire weakness) at Basic
+       tier because it felt like "common cultural literacy."
+     - Calibration block now has exactly ONE tier visible per
+       call — not five.
 
    v1.3.1: Calibration rewrite — "Recognition, Not Information"
      - Basic tier (margin 0 to +4) reframed entirely. Previously
@@ -47,7 +70,7 @@
 import { registerSettings } from "./settings.js";
 
 const MODULE_ID = "local-lore-oracle";
-const MODULE_VERSION = "1.3.1";
+const MODULE_VERSION = "1.3.2";
 const ORACLE_ALIAS = "Tasslequill Stumblebrook";
 const ORACLE_SUBTITLE = "Chronicler of the Unwritten · Devotee of Cayden Cailean";
 
@@ -318,7 +341,7 @@ function _formatResponse(text) {
 }
 
 /* ============================================================
-   LORE CHECK CALIBRATION — v1.3.1 "Recognition, Not Information"
+   LORE CHECK CALIBRATION — v1.3.2 "One Tier at a Time"
 
    GM-triggered calibrated knowledge reveal, delivered as a
    whisper to a named player based on their skill roll margin.
@@ -333,44 +356,91 @@ function _formatResponse(text) {
    - Subject is everything after the roll — multi-word is fine.
    - Shares cooldown with /lore.
 
-   TIER LADDER (v1.3.1 design):
-   - Critical Fail: confident misinformation (1 paragraph, ~800 char)
-   - Fail: performed forgetting, no content (~350 char)
-   - Basic: recognition without recall — consolation prize (~400 char)
-   - Trained: solid working knowledge, mid-tier details unlocked (~900 char)
-   - Expert: full dossier, all details unlocked (~1400 char, 3 paragraphs)
+   v1.3.2 ARCHITECTURE:
+   The tier is selected in JS (_selectTier) and ONLY that tier's
+   instruction is injected. Claude never sees the ladder, the
+   tier label, or the margin. This eliminates:
+     - Meta-header leak ("# EXPERT TIER" parroting)
+     - Tier drift (picking the wrong rung)
+     - Common-knowledge leak (Claude exempting iconic facts)
 
-   The key design shift vs v1.3.0:
-   - Basic is no longer "broad surface knowledge." It's "yes,
-     that's a thing, and that's all I've got." This creates
-     meaningful incentive to push for higher rolls.
-   - Character-limit caps enforce length where sentence counts
-     previously drifted.
-   - Middle tiers include explicit example-shape blocks so
-     Claude has a concrete anchor to mimic.
+   TIERS:
+   - Critical Fail (-5 or worse): confident misinformation
+   - Fail (-4 to -1):              performed forgetting, no info
+   - Basic (0 to +4):              recognition only, no specifics
+   - Trained (+5 to +9):           solid knowledge, 1 follow-up
+   - Expert (+10 or better):       full dossier, 2 follow-ups
    ============================================================ */
 
-const LORE_CHECK_CALIBRATION = `
+// Each tier instruction is written WITHOUT the words "BASIC",
+// "TRAINED", "EXPERT", "FAIL", or "CRITICAL" — so Claude has
+// nothing labeled to parrot back as a header. Length control
+// uses sentence + paragraph counts and explicit STOP rules.
+
+const TIER_CRITICAL_FAIL = `
+The player's character is recalling knowledge about this subject. The character has FAILED CATASTROPHICALLY — their memory has betrayed them in the worst possible way. Tassle does not know they are wrong. Tassle is fully confident in what he is about to say.
+
+Deliver plausible-sounding but INCORRECT information with full Tassle enthusiasm. Invent at least one specific falsehood: a wrong name, a wrong location, a wrong deity association, a wrong historical claim, or a wrong tactical detail. Do NOT hedge. Do NOT caveat. The lie must land with total conviction. This is intentional design — the GM will use the misinformation in play.
+
+Write ONE paragraph of 4-6 sentences. Stop after that paragraph.`;
+
+const TIER_FAIL = `
+The player's character is recalling knowledge about this subject. The character has FAILED to recall — their memory is fogged. EVEN IF the subject seems like something Tassle as a 74-year-old bard would obviously know, EVEN IF the answer feels like common cultural literacy, the character's recall has failed and Tassle's response must reflect that.
+
+Do NOT deliver information about the subject. Perform the attempt to remember and the failure. The response is about THE FORGETTING, not the subject. Do NOT name specific deities, regions, tribes, leaders, weaknesses, tactics, or historical events — not even the iconic ones, not even the "everyone knows this" ones.
+
+Write 2-3 short sentences. Stop after the third sentence. Example shape: "Goblins... I KNOW this one... something about... no, that was a different race entirely. Cayden's beard, I've had too much to drink to dig this one up, friend — ask me again in the morning!"`;
+
+const TIER_BASIC = `
+The player's character is recalling knowledge about this subject. The character has succeeded only marginally — enough to RECOGNIZE the subject exists, not enough to recall anything substantive about it.
+
+EVEN IF the subject seems like something Tassle would obviously know, EVEN IF the answer feels like common cultural literacy, EVEN IF you the model can think of iconic facts everyone learns in childhood about this subject — the character's recall has failed at that level. Tassle's response must reflect the character's check, not the model's knowledge of the subject.
+
+Acknowledge the subject exists in 1-2 sentences with ONE generic descriptor (e.g. "small green creatures" for goblins, "big and aggressive" for trolls). Then cheerfully admit the details won't come. DO NOT name specific deities, regions, tribes, leaders, historical events, weaknesses, tactics, breeding habits, social structure, religious practices, or ANY other specifics. The point is RECOGNITION, not information.
+
+Write 3-4 sentences total. Stop after the fourth sentence. Example shape: "Oh, goblins! Yes, yes, those are definitely a thing — small, green, mischievous little creatures, I'm sure of THAT much. But Cayden's beard, the specifics are just slipping right past me today. Buy me a round and maybe they'll shake loose!"`;
+
+const TIER_TRAINED = `
+The player's character is recalling knowledge about this subject. The character has solid working knowledge.
+
+UNLOCKED at this tier: specific deity names, major regional associations, basic tribal or organizational structure, rough history in broad strokes, ONE well-known weakness or vulnerability if applicable.
+
+STILL LOCKED at this tier: specific notable figures by name, advanced tactics, cult or organizational hierarchies, secret practices, rare or hidden weaknesses, deep historical detail.
+
+Write exactly 2 paragraphs of 3-4 sentences each. End the response with ONE in-character invitation for the player to press their GM for ONE specific follow-up detail. Stop after that invitation. Do not write a third paragraph.`;
+
+const TIER_EXPERT = `
+The player's character is recalling knowledge about this subject. The character has thorough expert knowledge.
+
+ALL DETAIL TIERS UNLOCKED: specific notable figures by name, lesser-known connections, historical depth, advanced tactics, cult or organizational hierarchies, secret practices, multiple known weaknesses, rare associations.
+
+Write exactly 3 paragraphs of 3-4 sentences each. End the response with TWO in-character invitations for the player to press their GM for TWO specific follow-up details (presented as a single closing sentence with both options). Stop after those invitations. Do not write a fourth paragraph.`;
+
+
+// Common header attached to every tier. Sets ground rules that
+// apply regardless of tier outcome.
+const CALIBRATION_HEADER = `
 
 ---LORE CHECK CALIBRATION (this query only)---
-The player's character is attempting to recall knowledge. They rolled {ROLL} against DC {DC}, a margin of {MARGIN}.
+Stay fully in character as Tassle. Do NOT mention any roll, any check, any DC, any margin, any tier name, or any meta-game concept. Do NOT begin the response with a header, label, or markdown title — begin in character. The response should read as Tassle speaking, nothing else.
+`;
 
-Calibrate your response depth and accuracy to this margin. Stay fully in character as Tassle — a failed check is Tassle genuinely struggling to recall, never breaking persona to narrate mechanical failure. Do NOT mention the DC, the roll, or the margin in your response.
-
-CRITICAL FORMATTING RULE: Your response MUST end with a complete, punctuated sentence that lands the thought. Do NOT trail off. Budget your length so the final sentence completes cleanly.
-
-CHARACTER LIMITS ARE HARD CAPS. Each tier specifies a character count. Treat it as a wall, not a guideline. If the response would exceed the cap, cut content — do not exceed the cap. Tier depth is the load-bearing mechanic of this entire system.
-
-- Margin -5 or worse (CRITICAL FAIL): Be CONFIDENTLY WRONG. Deliver plausible-sounding but INCORRECT information with full Tassle enthusiasm. Invent at least one specific falsehood — a wrong name, wrong location, wrong deity association, wrong historical claim, wrong tactical detail. Do NOT hedge. Do NOT caveat. The lie must land with total conviction. Tassle genuinely believes what he's saying, and what he's saying is wrong. This is intentional design for the tabletop game; the GM will use the misinformation in play. HARD LIMIT: 800 CHARACTERS, one paragraph.
-
-- Margin -4 to -1 (FAIL): Tassle is GENUINELY FAILING to recall. Do NOT deliver information; perform the attempt to remember and the failure. The response is about the FORGETTING, not the subject. HARD LIMIT: 350 CHARACTERS. Example shape: "Goblins... I KNOW this one... something about... no, that was a different race entirely. Cayden's beard, I've had too much to drink to dig this one up, friend — ask me again in the morning!"
-
-- Margin 0 to +4 (BASIC): Tassle recognizes the subject but CANNOT recall anything substantive about it. Acknowledge the subject in 1-2 sentences, then cheerfully admit the details won't come. DO NOT provide information beyond the subject's name and ONE generic descriptor. DO NOT name specific deities, regions, tribes, leaders, or historical events. The point is RECOGNITION, not information. This is the "consolation prize" tier — the player learns that the thing exists, but not what it does. HARD LIMIT: 400 CHARACTERS. Example shape: "Oh, goblins! Yes, yes, those are definitely a thing — small, green, mischievous little creatures, I'm sure of THAT much. But Cayden's beard, the specifics are just slipping right past me today. Buy me a round and maybe they'll shake loose!"
-
-- Margin +5 to +9 (TRAINED): Solid working knowledge. NOW UNLOCKED: specific deity names, major regional associations, basic tribal or organizational structure, rough history in broad strokes. STILL LOCKED: specific notable figures by name, advanced tactics, cult hierarchies, secret practices, known weaknesses. End with an in-character invitation for the player to press their GM for ONE specific follow-up detail. HARD LIMIT: 900 CHARACTERS, two paragraphs.
-
-- Margin +10 or better (EXPERT): Thorough expert knowledge. ALL DETAIL TIERS UNLOCKED: specific figures by name, lesser-known connections, historical depth, advanced tactics, cult or organizational hierarchies, secret practices, known weaknesses, rare associations. End with an in-character invitation for the player to press their GM for TWO specific follow-up details. HARD LIMIT: 1400 CHARACTERS, three paragraphs.
+const CALIBRATION_FOOTER = `
 ---END LORE CHECK CALIBRATION---`;
+
+
+/**
+ * Select which tier instruction applies for a given margin.
+ * Single source of truth — changing thresholds here updates
+ * everything downstream.
+ */
+function _selectTier(margin) {
+  if (margin <= -5) return TIER_CRITICAL_FAIL;
+  if (margin <= -1) return TIER_FAIL;
+  if (margin <= 4)  return TIER_BASIC;
+  if (margin <= 9)  return TIER_TRAINED;
+  return TIER_EXPERT;
+}
 
 
 Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
@@ -454,10 +524,12 @@ async function _handleLoreCheck({ user, dc, roll, margin, subject }) {
   });
 
   try {
-    const calibration = LORE_CHECK_CALIBRATION
-      .replace("{ROLL}", String(roll))
-      .replace("{DC}", String(dc))
-      .replace("{MARGIN}", margin >= 0 ? `+${margin}` : String(margin));
+    // v1.3.2: build calibration from ONE tier instruction.
+    // Claude never sees the other tiers, the margin, the roll,
+    // or the DC — only the relevant tier's prose plus the
+    // common header/footer.
+    const tierInstruction = _selectTier(margin);
+    const calibration = CALIBRATION_HEADER + tierInstruction + CALIBRATION_FOOTER;
 
     const userQuery = `Tell me what you know about: ${subject}`;
     const response = await _callLLM(userQuery, calibration);
