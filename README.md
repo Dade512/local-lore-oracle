@@ -2,7 +2,7 @@
 
 A player-facing lore assistant for **Foundry VTT v13** powered by an OpenAI-compatible LLM endpoint. Players type `/lore` in chat to consult **Tasslequill Stumblebrook**, a kender bard and self-proclaimed Chronicler of the Unwritten. GMs use `/lore-check` to deliver calibrated, roll-gated knowledge to specific players as private whispers.
 
-**Current version:** 1.3.3
+**Current version:** 1.3.4
 **Foundry compatibility:** v13 (minimum & verified)
 
 ---
@@ -259,6 +259,12 @@ This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at
 ---
 
 ## Changelog
+
+### v1.3.4 — "The Response IS The Forgetting"
+- **Fail tier rewrite.** v1.3.3 fixed Critical Fail and stabilized Basic, Trained, and Expert. Fail tier (margin -4 to -1) still leaked under live testing — the model would open with a charming preamble ("chased me through three provinces, taught them my drinking songs") and then slip in actual content like regions, factions, and tactics.
+- **Diagnosis.** Critical Fail asks for *active wrongness* (positive instruction — invent falsehoods). Fail asked for *absence of content* (negative instruction — don't deliver info). Models follow positive instructions reliably; negative instructions tend to get reinterpreted as "give a charmingly vague answer" rather than "make the response itself BE the forgetting."
+- **Fix.** Reframed `TIER_FAIL` with a positive content directive: the *content* of the response is the experience of trying to remember and failing — the stutter, false starts, mental groping, giving up. The subject's name appears as the thing being forgotten; no fact about the subject appears anywhere. Includes an explicit anti-anecdote rule ("that time I encountered one" sneaks content in through the back door). Lifts the existing example shape into the load-bearing definition of the response, not just an illustration.
+- **No code logic changes.** Only `TIER_FAIL` text changed.
 
 ### v1.3.3 — "Voice vs Content"
 - **Override preamble added to calibration header.** v1.3.2 fixed the *architecture* (model only sees one tier at a time) but the Critical Fail tier still regressed under live testing — at margin -10 the model produced three confident, accurate paragraphs of Trained-tier content. Diagnosis: the calibration was being received but losing to the system prompt's persona defaults ("supremely confident, 2-3 paragraphs default, common folk knowledge OK"). The Critical Fail tier asks the model to do something the persona's defaults *resist* — deliver wrong info in one short paragraph — and the model resolved the conflict by following the persona.

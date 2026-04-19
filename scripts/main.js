@@ -1,6 +1,29 @@
 /* ============================================================
-   LOCAL LORE ORACLE — MAIN v1.3.3
+   LOCAL LORE ORACLE — MAIN v1.3.4
    Chat-integrated LLM lore assistant.
+
+   v1.3.4: Fail tier rewrite — "The Response IS The Forgetting"
+     - v1.3.3 fixed Critical Fail and stabilized Basic, Trained,
+       and Expert tiers. Fail tier still leaked at margin -3:
+       the model gave a charming preamble ("chased me through
+       three provinces, taught them my drinking songs") then
+       slipped into actual content (Mwangi Expanse jungle
+       canopy goblins, poison darts, rope traps).
+     - Diagnosis: Critical Fail asks for ACTIVE wrongness
+       (positive instruction — invent falsehoods). Fail asked
+       for ABSENCE of content (negative instruction — don't
+       deliver info). Models follow positive instructions
+       reliably; negative instructions get reinterpreted as
+       "give a charmingly vague answer" instead of "make the
+       response BE about the forgetting."
+     - Fix: Reframe TIER_FAIL with a positive content directive.
+       The CONTENT of the response is the experience of trying
+       to remember and failing — the stutter, false starts,
+       giving up. The subject's name appears as the thing being
+       forgotten; no fact about the subject appears anywhere.
+       Lifts the existing example shape into the load-bearing
+       definition of the response, not just an illustration.
+     - No code logic changes — only TIER_FAIL prose changed.
 
    v1.3.3: Calibration override preamble — "Voice vs Content"
      - v1.3.2 fixed the architecture (one tier visible at a time)
@@ -90,7 +113,7 @@
 import { registerSettings } from "./settings.js";
 
 const MODULE_ID = "local-lore-oracle";
-const MODULE_VERSION = "1.3.3";
+const MODULE_VERSION = "1.3.4";
 const ORACLE_ALIAS = "Tasslequill Stumblebrook";
 const ORACLE_SUBTITLE = "Chronicler of the Unwritten · Devotee of Cayden Cailean";
 
@@ -405,11 +428,13 @@ Deliver plausible-sounding but INCORRECT information with full Tassle enthusiasm
 Write ONE paragraph of 4-6 sentences. Stop after that paragraph.`;
 
 const TIER_FAIL = `
-The player's character is recalling knowledge about this subject. The character has FAILED to recall — their memory is fogged. EVEN IF the subject seems like something Tassle as a 74-year-old bard would obviously know, EVEN IF the answer feels like common cultural literacy, the character's recall has failed and Tassle's response must reflect that.
+The player's character is recalling knowledge about this subject. The character has FAILED to recall — their memory is fogged.
 
-Do NOT deliver information about the subject. Perform the attempt to remember and the failure. The response is about THE FORGETTING, not the subject. Do NOT name specific deities, regions, tribes, leaders, weaknesses, tactics, or historical events — not even the iconic ones, not even the "everyone knows this" ones.
+The CONTENT of your response is the experience of trying to remember and failing. Not the subject itself — the failed reaching for it. Write about the stutter, the false starts, the mental groping, the giving up. The subject's name appears as the thing being forgotten. No fact about the subject appears anywhere in the response. No regions where it lives. No factions, tribes, or organizations. No notable individuals. No tactics, weaknesses, or vulnerabilities. No anecdotes that contain information about the subject (an anecdote about "that time I encountered one" sneaks content in through the back door — do not write one).
 
-Write 2-3 short sentences. Stop after the third sentence. Example shape: "Goblins... I KNOW this one... something about... no, that was a different race entirely. Cayden's beard, I've had too much to drink to dig this one up, friend — ask me again in the morning!"`;
+EVEN IF the subject seems like something Tassle as a 74-year-old bard would obviously know, EVEN IF the answer feels like common cultural literacy, the character's recall has failed at this level. The character's check governs the response, not the model's knowledge of the subject.
+
+Write 2-3 short sentences total. Stop after the third sentence. The response is purely the performance of forgetting — that is the entire content. Example shape (this IS the shape, not just an illustration): "Goblins... I KNOW this one... something about... no, that was a different race entirely. Cayden's beard, I've had too much to drink to dig this one up, friend — ask me again in the morning!"`;
 
 const TIER_BASIC = `
 The player's character is recalling knowledge about this subject. The character has succeeded only marginally — enough to RECOGNIZE the subject exists, not enough to recall anything substantive about it.

@@ -2,7 +2,7 @@
   "id": "local-lore-oracle",
   "title": "Local Lore Oracle — Tasslequill's Desk",
   "description": "A player-facing lore assistant powered by an OpenAI-compatible LLM endpoint (Anthropic Claude, Google Gemini, OpenAI, or local Ollama). Players type /lore in chat to consult Tasslequill Stumblebrook, a kender bard and self-proclaimed Chronicler of the Unwritten. GMs use /lore-check to deliver calibrated, roll-gated lore as private whispers.",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "compatibility": {
     "minimum": "13",
     "verified": "13"
