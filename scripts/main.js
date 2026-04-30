@@ -1,111 +1,59 @@
 /* ============================================================
-   LOCAL LORE ORACLE — MAIN v1.3.4
+   LOCAL LORE ORACLE — MAIN v1.4.0
    Chat-integrated LLM lore assistant.
 
+   v1.4.0: Security hardening — "Keys Behind the Bar"
+     - Priority A security fixes. Three patches:
+
+     FIX 1 — HTML escape LLM output:
+       _formatResponse() previously inserted raw LLM text into
+       chat HTML with no escaping. A model response containing
+       <script> tags or arbitrary HTML would execute. Fix: escape
+       paragraph text via _escapeHtml() first, then convert
+       escaped newlines to <br>. Zero arbitrary HTML from LLM
+       output reaches the DOM.
+
+     FIX 2 — Socket-based GM proxy for LLM calls:
+       Player /lore commands previously triggered a browser-side
+       fetch() that read the API key from world settings. Any
+       player client could initiate API calls and — with browser
+       devtools — observe the key in the Authorization header.
+       Fix: "socket": true added to module.json; player /lore
+       requests now emit a socket event to the active GM. The
+       GM client reads the key, runs the fetch, and creates the
+       chat message. If no GM is active, the player receives a
+       clear warning. GM /lore and GM /lore-check continue to
+       call _callLLM() directly — they already have GM-level
+       settings access.
+
+     FIX 3 — GM-side rate limiting by sender userId:
+       Cooldown was enforced client-side only via _lastQueryTime.
+       A player could bypass it by resetting the module or
+       sending socket events directly. Fix: GM socket handler
+       maintains _gmRateLimitMap keyed by sender userId.
+       Enforcement lives on the GM. Client-side cooldown remains
+       as UX feedback only.
+
    v1.3.4: Fail tier rewrite — "The Response IS The Forgetting"
-     - v1.3.3 fixed Critical Fail and stabilized Basic, Trained,
-       and Expert tiers. Fail tier still leaked at margin -3:
-       the model gave a charming preamble ("chased me through
-       three provinces, taught them my drinking songs") then
-       slipped into actual content (Mwangi Expanse jungle
-       canopy goblins, poison darts, rope traps).
+     - Fail tier still leaked at margin -3: the model gave a
+       charming preamble then slipped into actual content.
      - Diagnosis: Critical Fail asks for ACTIVE wrongness
-       (positive instruction — invent falsehoods). Fail asked
-       for ABSENCE of content (negative instruction — don't
-       deliver info). Models follow positive instructions
+       (positive instruction). Fail asked for ABSENCE of content
+       (negative instruction). Models follow positive instructions
        reliably; negative instructions get reinterpreted as
-       "give a charmingly vague answer" instead of "make the
-       response BE about the forgetting."
+       "give a charmingly vague answer."
      - Fix: Reframe TIER_FAIL with a positive content directive.
        The CONTENT of the response is the experience of trying
-       to remember and failing — the stutter, false starts,
-       giving up. The subject's name appears as the thing being
-       forgotten; no fact about the subject appears anywhere.
-       Lifts the existing example shape into the load-bearing
-       definition of the response, not just an illustration.
-     - No code logic changes — only TIER_FAIL prose changed.
+       to remember and failing. Subject's name appears as the
+       thing being forgotten; no fact about the subject appears.
 
    v1.3.3: Calibration override preamble — "Voice vs Content"
-     - v1.3.2 fixed the architecture (one tier visible at a time)
-       but Critical Fail tier still regressed: at margin -10 the
-       model produced three confident, ACCURATE paragraphs of
-       Trained-tier content despite receiving the Critical Fail
-       instruction.
-     - Diagnosis: the calibration was being received but losing
-       to the system prompt's persona defaults. Persona says
-       "supremely confident, knowledgeable, 2-3 paragraphs default,
-       common folk knowledge OK" — Critical Fail asks the model to
-       deliver wrong info in 1 short paragraph. Model resolved
-       the conflict by following the persona and ignoring the tier.
-     - Fix: prepend an OVERRIDE preamble to CALIBRATION_HEADER
-       that explicitly partitions the system prompt into VOICE
-       (which still applies) and CONTENT (which the calibration
-       overrides). Includes explicit unreliable-narrator framing
-       so the model understands Critical Fail is a feature of the
-       persona, not a violation of it.
-     - No code logic changes — only the CALIBRATION_HEADER text.
-
    v1.3.2: Calibration architecture rewrite — "One Tier at a Time"
-     - Tier is now selected in JavaScript (_selectTier function)
-       and ONLY that tier's instruction is injected into the
-       system prompt. Claude never sees the full ladder, the
-       tier label, the margin number, or the DC.
-     - This fixes the meta-header leak (Claude was parroting
-       "# Knowledge Check (Margin +15 = EXPERT TIER)" because
-       it could see the labeled ladder structure).
-     - This also fixes tier drift — Claude can't accidentally
-       pick the wrong rung if it never sees the ladder.
-     - Length control switched from CHARACTER caps to SENTENCE
-       and PARAGRAPH counts, plus explicit STOP instructions.
-       Claude reliably obeys structural counts ("2 paragraphs
-       of 3-4 sentences") but ignores numeric character caps.
-     - Added anti-common-knowledge guardrail to Fail and Basic
-       tiers: "even if the subject seems like common knowledge,
-       even if Tassle would obviously know it, the CHARACTER
-       failed to recall." This addresses the case where Claude
-       was leaking iconic facts (troll/fire weakness) at Basic
-       tier because it felt like "common cultural literacy."
-     - Calibration block now has exactly ONE tier visible per
-       call — not five.
-
    v1.3.1: Calibration rewrite — "Recognition, Not Information"
-     - Basic tier (margin 0 to +4) reframed entirely. Previously
-       asked for "common tavern-patron knowledge" which Claude
-       interpreted as "a broad survey." Now Basic is explicitly
-       "Tassle recognizes the subject but cannot recall anything
-       substantive." Creates a crisper ladder where Trained and
-       Expert feel like real rewards.
-     - All tiers now use CHARACTER-LIMIT hard caps alongside
-       paragraph guidance. Character limits are mechanically
-       enforceable where sentence counts drift; paragraph guidance
-       tells Claude the shape.
-     - Fail tier reframed from "hedge about the subject" to
-       "perform the attempt to remember and the failure."
-       Claude is a better actor than content-withholder.
-     - Middle tiers now include explicit EXAMPLE SHAPE blocks.
-       Claude anchors hard to provided examples.
-
    v1.3.0: Added Anthropic (Claude) provider support.
-     - CORS enabling header 'anthropic-dangerous-direct-browser-access'
-       sent with every request. Required for browser-side calls to
-       Anthropic's OpenAI-compatible endpoint. Other providers
-       (Gemini, OpenAI, Ollama) ignore the unknown header.
-     - Claude Haiku 4.5 is the recommended model for Tassle's
-       use case: strong character voice, creative fiction framing,
-       willing to commit to intentional misinformation when the
-       tier calibration calls for it.
-     - finish_reason values other than "stop" now warn to console
-       for debugging truncation and content-filter issues.
-
-   v1.2: Added /lore-check GM command — calibrated whispered lore
-     based on skill roll margin. Five-tier calibration system
-     from critical fail (confidently wrong) to expert (full detail
-     + follow-up questions). _callLLM gained optional calibration
-     parameter; existing /lore behavior unchanged.
-
-   v1.1: Added API key support for cloud providers (Gemini, 
-     OpenAI). Bearer token sent when API key is configured.
-     Ollama (no key) still works — just leave the key blank.
+   v1.2:   Added /lore-check GM command.
+   v1.1:   Added API key support.
+   v1.0:   Initial release.
 
    For Foundry VTT v13
    ============================================================ */
@@ -113,11 +61,18 @@
 import { registerSettings } from "./settings.js";
 
 const MODULE_ID = "local-lore-oracle";
-const MODULE_VERSION = "1.3.4";
+const MODULE_VERSION = "1.4.0";
 const ORACLE_ALIAS = "Tasslequill Stumblebrook";
 const ORACLE_SUBTITLE = "Chronicler of the Unwritten · Devotee of Cayden Cailean";
 
+// Client-side UX cooldown only — not enforced. Real enforcement is
+// _gmRateLimitMap on the GM side (see _handleSocketLoreQuery).
 let _lastQueryTime = 0;
+
+// GM-side rate limit store: userId → last call timestamp (ms).
+// Keyed by sender so each player has their own cooldown window.
+// Only populated and checked on GM clients.
+const _gmRateLimitMap = new Map();
 
 /* ----------------------------------------------------------
    DEFAULT SYSTEM PROMPT
@@ -169,6 +124,22 @@ Hooks.once("ready", () => {
     console.log(`${MODULE_ID} | Default system prompt installed`);
   }
   console.log(`${MODULE_ID} | Local Lore Oracle v${MODULE_VERSION} ready — type /lore [question] in chat`);
+
+  // Socket handler — receives /lore proxy requests from player clients.
+  // All connected GM clients receive every socket event on this channel.
+  // Only the first active GM found in collection iteration order processes
+  // the request, preventing duplicate responses when multiple GMs are connected.
+  game.socket.on(`module.${MODULE_ID}`, async (data) => {
+    if (!game.user.isGM) return;
+
+    // Pick the first active GM in collection iteration order as the handler.
+    const primaryGM = game.users.find(u => u.isGM && u.active);
+    if (!primaryGM || primaryGM.id !== game.user.id) return;
+
+    if (data.type === "loreQuery") {
+      await _handleSocketLoreQuery(data);
+    }
+  });
 });
 
 /* ----------------------------------------------------------
@@ -186,6 +157,8 @@ Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
     return false;
   }
 
+  // Client-side cooldown — UX feedback only, not enforcement.
+  // GM-side _gmRateLimitMap is the enforced gate for player requests.
   const cooldown = game.settings.get(MODULE_ID, "cooldownSeconds") ?? 0;
   const now = Date.now();
   if (cooldown > 0 && (now - _lastQueryTime) < cooldown * 1000) {
@@ -195,12 +168,111 @@ Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
   }
   _lastQueryTime = now;
 
-  _handleOracleQuery(query);
+  _requestOracleQuery(query);
   return false;
 });
 
 /* ----------------------------------------------------------
-   QUERY HANDLER — /lore
+   QUERY ROUTER — /lore
+   
+   GMs call _handleOracleQuery() directly — they already have
+   GM-level settings access and the API key is theirs to use.
+   
+   Players emit a socket request. The active GM client receives
+   it, enforces rate limiting, runs the LLM call, and updates
+   the chat message. If no GM is active, the player is warned.
+   ---------------------------------------------------------- */
+
+async function _requestOracleQuery(query) {
+  if (game.user.isGM) {
+    // GM path: direct call. _gmRateLimitMap is not updated here
+    // because GM /lore uses the local _lastQueryTime gate above,
+    // same as /lore-check. The rate limit map is only for players.
+    await _handleOracleQuery(query);
+    return;
+  }
+
+  // Player path: route through GM socket proxy.
+  const activeGM = game.users.find(u => u.isGM && u.active);
+  if (!activeGM) {
+    ui.notifications.warn("No GM is available to consult Tassle.");
+    return;
+  }
+
+  // Create the thinking card immediately for UX responsiveness.
+  // The GM will update this message once the LLM responds.
+  const thinkingMsg = await ChatMessage.create({
+    speaker: { alias: ORACLE_ALIAS },
+    content: _buildThinkingCard(query),
+  });
+
+  game.socket.emit(`module.${MODULE_ID}`, {
+    type: "loreQuery",
+    query,
+    senderId: game.user.id,
+    messageId: thinkingMsg.id,
+  });
+}
+
+/* ----------------------------------------------------------
+   SOCKET HANDLER — GM side
+   
+   Receives loreQuery events from player clients. Enforces
+   per-player rate limiting, runs the LLM call, and updates
+   the pre-created thinking card with the response or error.
+   ---------------------------------------------------------- */
+
+async function _handleSocketLoreQuery({ query, senderId, messageId }) {
+  const cooldown = game.settings.get(MODULE_ID, "cooldownSeconds") ?? 0;
+  const now = Date.now();
+  const last = _gmRateLimitMap.get(senderId) ?? 0;
+
+  if (cooldown > 0 && (now - last) < cooldown * 1000) {
+    const remaining = Math.ceil((cooldown * 1000 - (now - last)) / 1000);
+    console.warn(`${MODULE_ID} | Rate limit: ${senderId} must wait ${remaining}s`);
+
+    // Delete the thinking card the player already created.
+    const thinkingMsg = game.messages.get(messageId);
+    if (thinkingMsg) await thinkingMsg.delete();
+
+    // Whisper a warning back to the sender.
+    await ChatMessage.create({
+      whisper: [senderId],
+      content: `<em>Tassle is still pondering the last question. Try again in ${remaining}s.</em>`,
+    });
+    return;
+  }
+
+  // Record this call before the await so overlapping requests from
+  // the same player are also blocked while the LLM is in flight.
+  _gmRateLimitMap.set(senderId, now);
+
+  const thinkingMsg = game.messages.get(messageId);
+
+  try {
+    const response = await _callLLM(query);
+    const responseContent = _buildResponseCard(query, response);
+
+    if (thinkingMsg) {
+      await thinkingMsg.update({ content: responseContent });
+    } else {
+      // Fallback: thinking card was deleted or never arrived.
+      await ChatMessage.create({
+        speaker: { alias: ORACLE_ALIAS },
+        content: responseContent,
+      });
+    }
+  } catch (error) {
+    console.error(`${MODULE_ID} | Socket oracle query failed:`, error);
+    const errorContent = _buildErrorCard(query, error.message);
+    if (thinkingMsg) {
+      await thinkingMsg.update({ content: errorContent });
+    }
+  }
+}
+
+/* ----------------------------------------------------------
+   QUERY HANDLER — direct (GM /lore and /lore-check)
    ---------------------------------------------------------- */
 
 async function _handleOracleQuery(query) {
@@ -235,6 +307,11 @@ async function _handleOracleQuery(query) {
    enables browser-side calls to Anthropic's API. Other
    providers silently ignore this unknown header, so it's
    safe to include unconditionally.
+
+   v1.4.0: This function is called ONLY on GM clients.
+   Players route through the socket proxy (_requestOracleQuery
+   → _handleSocketLoreQuery). The API key never leaves the
+   GM's browser context.
 
    The `calibration` parameter appends tier-specific
    instructions to the system prompt (used by /lore-check).
@@ -367,20 +444,39 @@ function _buildErrorCard(query, errorMessage) {
    HELPERS
    ---------------------------------------------------------- */
 
+/**
+ * Escape a plain-text string for safe insertion into HTML.
+ * Uses the browser's own serializer so entity coverage is
+ * complete. Call this before any string goes into innerHTML.
+ */
 function _escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
 }
 
+/**
+ * Convert LLM plain text to safe HTML paragraphs.
+ *
+ * v1.4.0 security fix: escape paragraph text FIRST via
+ * _escapeHtml(), then convert remaining literal newlines to
+ * <br>. Order matters — escaping after <br> insertion would
+ * destroy the tags; escaping before ensures no raw LLM HTML
+ * reaches the DOM at any point in the pipeline.
+ *
+ * Before (v1.3.x): p.replace(/\n/g, "<br>")
+ *   — LLM output inserted verbatim; arbitrary HTML executes.
+ * After (v1.4.0):  _escapeHtml(p).replace(/\n/g, "<br>")
+ *   — entities escaped first; only literal \n → <br> survives.
+ */
 function _formatResponse(text) {
   const paragraphs = text
     .split(/\n\n+/)
     .map(p => p.trim())
     .filter(p => p.length > 0)
-    .map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`)
+    .map(p => `<p>${_escapeHtml(p).replace(/\n/g, "<br>")}</p>`)
     .join("");
-  return paragraphs || `<p>${text}</p>`;
+  return paragraphs || `<p>${_escapeHtml(text)}</p>`;
 }
 
 /* ============================================================

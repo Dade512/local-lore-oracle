@@ -2,7 +2,7 @@
 
 A player-facing lore assistant for **Foundry VTT v13** powered by an OpenAI-compatible LLM endpoint. Players type `/lore` in chat to consult **Tasslequill Stumblebrook**, a kender bard and self-proclaimed Chronicler of the Unwritten. GMs use `/lore-check` to deliver calibrated, roll-gated knowledge to specific players as private whispers.
 
-**Current version:** 1.3.4
+**Current version:** 1.4.0
 **Foundry compatibility:** v13 (minimum & verified)
 
 ---
@@ -36,6 +36,21 @@ The module always sends the `anthropic-dangerous-direct-browser-access: true` he
 
 ---
 
+## Security Model (v1.4.0)
+
+As of v1.4.0, the API key never leaves the GM's browser. Player `/lore` commands are routed through a server-side socket to the active GM client, which runs the LLM call and posts the response. Players never touch the API endpoint directly and cannot observe the key in network traffic.
+
+This is the correct architecture for any Foundry module handling credentials. For a trusted home-game table it's belt-and-suspenders; for anyone running a semi-public server it's the difference between a safe deployment and an exposed key.
+
+**What changed:**
+- `module.json` now declares `"socket": true`
+- Player `/lore` emits `module.local-lore-oracle` socket event to the active GM
+- GM client enforces per-player rate limiting via an in-memory map
+- If no GM is active, the player sees: *"No GM is available to consult Tassle."*
+- GM `/lore` and `/lore-check` still call the LLM directly (GM context, no proxy needed)
+
+---
+
 ## Setup — Anthropic Claude (Recommended)
 
 Claude is the strongest fit for Tassle: consistent character voice, creative fiction framing, and willingness to commit to intentional misinformation when the `/lore-check` critical-fail tier calls for it.
@@ -57,7 +72,7 @@ Sign up at [console.anthropic.com](https://console.anthropic.com). Verify your p
 | Model | `claude-haiku-4-5` (default) |
 | Temperature | `0.80` |
 | Max Tokens | `1024` |
-| Cooldown | `15` (seconds between queries) |
+| Cooldown | `15` (seconds between queries per player) |
 
 ### 3. Load the Knowledge Base
 
@@ -72,12 +87,6 @@ Tassle is ready. Players type `/lore <question>` to consult him.
 ### Cost Expectations
 
 Claude Haiku 4.5 is priced at $1/M input tokens and $5/M output tokens. A typical Tassle query (~4K input, ~700 output) costs about three-quarters of a cent. A 120-session campaign at 25 queries per session runs roughly $23 total. Orders of magnitude cheaper than buying everyone pizza.
-
-### Security Caveat
-
-The `anthropic-dangerous-direct-browser-access` header is named that way for a reason: the API key is stored in Foundry's world settings and sent from the GM's browser on every call. Anyone with GM-level access to your world can inspect module settings and extract the key. For a homebrew game with trusted friends this is fine. The monthly spend cap is your safety net either way.
-
-For public-facing deployments, you'd want a server-side proxy. For a home campaign, you're good.
 
 ---
 
@@ -144,13 +153,15 @@ Close Ollama after the session to free VRAM for other uses.
 
 ### `/lore <question>` — Player-Facing
 
-Anyone can use this. Query goes to Tassle, response is posted publicly in chat so the whole table can enjoy his rambling.
+Anyone can use this. Query is routed to the GM client via socket, which consults Tassle and posts the response publicly so the whole table can enjoy the rambling.
 
 ```
 /lore What's the deal with the Hellknights?
 /lore Tell me about Molthune
 /lore Recommend a tavern in Canorate
 ```
+
+If no GM client is active when the command is used, the player sees: *"No GM is available to consult Tassle."* — the query is silently dropped, no API call is made.
 
 ### `/lore-check <player> <DC> <roll> <subject>` — GM-Only
 
@@ -182,7 +193,7 @@ Because the response is whispered, each player only sees their own roll's result
 
 #### Notes on Misinformation Design
 
-The critical-fail tier is intentional. Tassle is an unreliable narrator by character design — his flaws are features, not bugs. **Model matters here:** Claude and larger models reliably commit to the lie; smaller cost-efficient models (e.g. Flash-Lite tiers) may refuse and produce technically-correct responses instead. If your table prefers a softer outcome, change the critical-fail instruction in the `LORE_CHECK_CALIBRATION` constant at the bottom of `scripts/main.js`.
+The critical-fail tier is intentional. Tassle is an unreliable narrator by character design — his flaws are features, not bugs. **Model matters here:** Claude and larger models reliably commit to the lie; smaller cost-efficient models (e.g. Flash-Lite tiers) may refuse and produce technically-correct responses instead. If your table prefers a softer outcome, change the critical-fail instruction in the `TIER_CRITICAL_FAIL` constant in `scripts/main.js`.
 
 ---
 
@@ -212,6 +223,7 @@ The Oracle is architecturally firewalled to prevent meta-knowledge leaks:
 - **Character-driven deflection.** When the LLM doesn't know something or shouldn't reveal it, Tassle deflects in character rather than refusing robotically.
 - **Hallucination coverage.** If the model confabulates, it reads as Tassle being Tassle — "I MIGHT be confusing this with a different city…"
 - **`/lore-check` GM-gating.** Non-GM users attempting `/lore-check` are blocked with a notification. The command never fires for players, so they cannot self-calibrate their own knowledge checks.
+- **API key GM-only (v1.4.0).** Player `/lore` commands are proxied through the GM client via Foundry's socket layer. The key is never read or transmitted by a player browser.
 
 ---
 
@@ -219,6 +231,9 @@ The Oracle is architecturally firewalled to prevent meta-knowledge leaks:
 
 **"Failed to fetch" error**
 Usually CORS. This module sends `anthropic-dangerous-direct-browser-access: true` which enables Anthropic's browser-side calls. If you're on a provider with stricter CORS, you'll need a local proxy. Check browser console (F12) for the actual error.
+
+**"No GM is available to consult Tassle."**
+No active GM client is connected. The GM needs to have Foundry open for player `/lore` queries to work. If you're testing solo as GM, your own `/lore` command bypasses the socket and calls directly — this message won't appear for you.
 
 **Mid-sentence truncation**
 The model hit the output token ceiling. Increase **Max Response Tokens** in settings. For reasoning models (Gemini 2.5+, Claude with extended thinking enabled), the thinking tokens share the budget — bump to 2048+ if needed.
@@ -230,10 +245,10 @@ The module logs `finish_reason` values that aren't `"stop"`. Common ones: `"leng
 Your model refuses to confabulate. Anthropic Claude or Gemini 3 Flash Preview handle this reliably; smaller/safety-heavy models may not. See the "Notes on Misinformation Design" section above.
 
 **Basic tier is giving too much info**
-That was v1.3.0–v1.3.1's behavior with some providers. v1.3.2 restructured the calibration entirely — the model now sees ONLY the relevant tier's instruction (computed in JS), not the full ladder. Combined with explicit anti-common-knowledge framing for Basic and Fail tiers, iconic facts (troll/fire weakness, etc.) should stay locked. If you're still seeing leakage at Basic tier, verify `scripts/main.js` is actually at v1.3.2 (check `MODULE_VERSION` near the top).
+That was v1.3.0–v1.3.1's behavior with some providers. v1.3.2 restructured the calibration entirely — the model now sees ONLY the relevant tier's instruction (computed in JS), not the full ladder. Combined with explicit anti-common-knowledge framing for Basic and Fail tiers, iconic facts (troll/fire weakness, etc.) should stay locked. If you're still seeing leakage at Basic tier, verify `scripts/main.js` is actually at v1.3.2+ (check `MODULE_VERSION` near the top).
 
 **Meta-headers in responses ("# Knowledge Check (Margin +X)")**
-This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at the player. v1.3.2 fixes it by never showing Claude the labels in the first place. If you see meta-headers on v1.3.2, that's a regression worth a thumbs-down to flag.
+This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at the player. v1.3.2 fixes it by never showing Claude the labels in the first place. If you see meta-headers on v1.3.2+, that's a regression worth flagging.
 
 ---
 
@@ -241,7 +256,7 @@ This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at
 
 | File | Purpose |
 |---|---|
-| `scripts/main.js` | Chat interception for `/lore` and `/lore-check`, LLM API call, thinking/response/error cards, calibration prompt |
+| `scripts/main.js` | Chat interception for `/lore` and `/lore-check`, socket proxy, LLM API call, thinking/response/error cards, calibration prompt |
 | `scripts/settings.js` | Module settings registration + prompt editor FormApplication |
 | `styles/oracle.css` | Croaker's Ledger themed chat cards |
 | `templates/prompt-editor.html` | Textarea form for editing prompt + knowledge |
@@ -260,6 +275,20 @@ This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at
 
 ## Changelog
 
+### v1.4.0 — "Keys Behind the Bar"
+Three Priority A security fixes. No user-facing feature changes; command surface and visual output are identical.
+
+**Fix 1 — HTML escape LLM output (`_formatResponse`):**
+LLM text was inserted directly into chat HTML without escaping. A model response containing `<script>` tags or malformed HTML could execute in every connected player's browser. Fixed by passing paragraph text through `_escapeHtml()` before the `\n → <br>` conversion. Order matters: escaping first ensures no raw HTML structure reaches the DOM; escaping after would have destroyed the `<br>` tags.
+
+**Fix 2 — Socket-based GM proxy for API calls:**
+Player `/lore` commands previously triggered a `fetch()` from the player's browser that read the API key from world settings and included it in the `Authorization` header. Any player with browser devtools open could observe and extract the key. Fixed by adding `"socket": true` to `module.json` and routing player queries through `game.socket.emit()`. The GM client receives the query, runs the LLM call, and posts the response. The API key never leaves the GM's browser context. If no GM is active, the player receives a clear in-chat warning.
+
+**Fix 3 — GM-side rate limiting by sender:**
+Cooldown was enforced entirely client-side via `_lastQueryTime`. A player could bypass it by reloading or manually emitting socket events. Fixed by adding `_gmRateLimitMap` (a `Map<userId, timestamp>`) on the GM side. The GM socket handler checks elapsed time per sender before processing any query. The client-side cooldown is retained as UX feedback (stops the UI before the round-trip) but is no longer the enforcement gate.
+
+**Architecture note:** GM `/lore` and `/lore-check` continue to call `_callLLM()` directly — they already operate in GM context and there's no socket overhead to justify. The socket proxy applies only to player-originated `/lore` requests.
+
 ### v1.3.4 — "The Response IS The Forgetting"
 - **Fail tier rewrite.** v1.3.3 fixed Critical Fail and stabilized Basic, Trained, and Expert. Fail tier (margin -4 to -1) still leaked under live testing — the model would open with a charming preamble ("chased me through three provinces, taught them my drinking songs") and then slip in actual content like regions, factions, and tactics.
 - **Diagnosis.** Critical Fail asks for *active wrongness* (positive instruction — invent falsehoods). Fail asked for *absence of content* (negative instruction — don't deliver info). Models follow positive instructions reliably; negative instructions tend to get reinterpreted as "give a charmingly vague answer" rather than "make the response itself BE the forgetting."
@@ -269,51 +298,32 @@ This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at
 ### v1.3.3 — "Voice vs Content"
 - **Override preamble added to calibration header.** v1.3.2 fixed the *architecture* (model only sees one tier at a time) but the Critical Fail tier still regressed under live testing — at margin -10 the model produced three confident, accurate paragraphs of Trained-tier content. Diagnosis: the calibration was being received but losing to the system prompt's persona defaults ("supremely confident, 2-3 paragraphs default, common folk knowledge OK"). The Critical Fail tier asks the model to do something the persona's defaults *resist* — deliver wrong info in one short paragraph — and the model resolved the conflict by following the persona.
 - **Fix.** The `CALIBRATION_HEADER` now opens with an explicit override preamble that partitions the system prompt into two halves: VOICE (always applies — Tassle's exclamations, tangents, mannerisms, Cayden references) and CONTENT (calibration wins — length, confidence level, what specifics are permitted). Includes explicit unreliable-narrator framing so the model understands Critical Fail is a *feature* of the persona, not a violation of it.
-- **No code logic changes.** Only the `CALIBRATION_HEADER` text changed. Tier constants, JS tier selection, and command surface are unchanged.
+- **No code logic changes.** Only the `CALIBRATION_HEADER` text changed.
 
 ### v1.3.2 — "One Tier at a Time"
-- **Calibration architecture rewrite.** Tier is now selected in JavaScript (`_selectTier`) and ONLY that tier's instruction is injected into the prompt. The model never sees the full ladder, never sees tier labels like "BASIC" or "EXPERT", never sees the margin or DC. This eliminates three failure modes simultaneously:
-  - **Meta-header leak.** v1.3.1 sometimes produced responses starting with `# Knowledge Check (Margin +X = TIER)`. The model was parroting the labeled ladder it could see. With one tier visible at a time, there's nothing to parrot.
-  - **Tier drift.** Responses occasionally over- or under-delivered for their margin. Without a ladder to read, the model can't pick the wrong rung.
-  - **Common-knowledge leak.** Basic tier was leaking iconic facts (troll/fire weakness, goblin deity associations) because the model treated them as "common cultural literacy" exempt from calibration. Fail and Basic tiers now include explicit anti-common-knowledge framing: "even if it feels iconic, even if everyone learns this in childhood, the character's recall has failed."
-- **Length control switched from character caps to sentence/paragraph counts.** Character caps were a weak lever — Claude routinely exceeded them by 50-75%. Structural counts like "3-4 sentences" with explicit "Stop after the Nth sentence" rules are far more reliable.
-- **Calibration block now ships as five separate `TIER_*` constants** plus a common header/footer. Easier to tune one tier without rewriting everything.
-- **No user-facing command changes.** Same `/lore-check` syntax, same outputs, same whisper behavior.
+- **Calibration architecture rewrite.** Tier is now selected in JavaScript (`_selectTier`) and ONLY that tier's instruction is injected into the prompt. The model never sees the full ladder, never sees tier labels, never sees the margin or DC. Eliminates meta-header leak, tier drift, and common-knowledge leak.
+- **Length control switched from character caps to sentence/paragraph counts.**
+- **Calibration block ships as five separate `TIER_*` constants** plus a common header/footer.
 
 ### v1.3.1 — "Recognition, Not Information"
-- **`/lore-check` calibration rewrite.** The v1.3.0 tier ladder kept flattening in the middle — Basic rolls produced trained-tier content, Trained rolls produced expert-tier content. This release rebuilds the ladder with clearer design intent per tier.
-- **Basic tier reframed.** Was "common tavern-patron knowledge, stay broad." Now "Tassle recognizes the subject but cannot recall anything substantive." A margin-0 roll gets the player "yes, goblins exist, small green things, that's all I've got" — a real consolation prize that creates meaningful incentive to push for higher rolls.
-- **Fail tier reframed.** Was "hedge about the subject." Now "perform the attempt to remember and the failure." Claude (and most LLMs) handle theatrical roleplay better than content-withholding.
-- **Character-limit hard caps per tier** (350/400/800/900/1400). Sentence counts drift; character limits don't. Paragraph guidance still provided as shape, not enforcement.
-- **Example-shape blocks** added to Fail and Basic tiers — explicit sample responses for the model to anchor to.
+- `/lore-check` calibration rewrite. Basic tier reframed from "tavern-patron knowledge" to "recognition only." Fail tier reframed as performance of forgetting. Character-limit hard caps per tier. Example-shape blocks added.
 
 ### v1.3.0 — "The Ink Reaches Further"
 - Added Anthropic Claude provider support via the OpenAI-compatible endpoint.
-- `_callLLM` now sends `anthropic-dangerous-direct-browser-access: true` on every request. Required for Claude from browser context; silently ignored by other providers.
-- `finish_reason` values other than `"stop"` now log a warning to the console — useful for diagnosing silent truncation.
-- Default model changed to `claude-haiku-4-5`; default endpoint changed to Anthropic's.
-- Default `maxTokens` raised from 600 → 1024 to accommodate reasoning models.
-- Settings hints updated to document Anthropic alongside Gemini and Ollama.
-- README expanded with per-provider setup, cost math, troubleshooting, and security caveats.
+- `_callLLM` now sends `anthropic-dangerous-direct-browser-access: true`. Required for Claude from browser context; silently ignored by other providers.
+- `finish_reason` non-stop values logged to console. Default model changed to `claude-haiku-4-5`.
 
 ### v1.2.0 — "A Private Consultation"
-- Added `/lore-check` GM command: calibrated whispered lore based on skill roll margin.
-- Five-tier calibration system (critical fail → expert) driven by a single prompt addendum — no per-topic content authoring required.
-- Critical-fail tier intentionally returns confidently-wrong information for unreliable-narrator payoff.
-- Non-GM users are blocked from `/lore-check` with a clear notification.
-- `/lore-check` shares the `/lore` cooldown to prevent LLM spam.
-- `_callLLM` gained an optional `calibration` parameter; existing `/lore` behavior is unchanged.
+- Added `/lore-check` GM command with five-tier calibration system.
+- Non-GM users blocked from `/lore-check`. Shares `/lore` cooldown.
 
 ### v1.1.0 — "The Oracle Goes to the Cloud"
-- Added API key / Bearer token support for cloud LLM providers (Gemini, OpenAI).
-- Ollama still works — just leave the API key blank.
-- Default endpoint switched to Gemini for out-of-box usability.
+- Added API key / Bearer token support. Ollama still works with blank key.
 
 ### v1.0.0 — Initial Release
 - `/lore` command with Ollama-only local inference.
 - Croaker's Ledger themed chat cards.
-- System prompt + player-safe knowledge injection.
-- Cooldown to prevent spam.
+- System prompt + player-safe knowledge injection. Cooldown.
 
 ---
 
