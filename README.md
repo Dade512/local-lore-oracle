@@ -109,10 +109,16 @@ Generate one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
 ### Model Notes
 
-- **Gemini 3.1 Flash-Lite Preview** — cheapest option, defaults to minimal thinking. Good persona but may refuse to commit to critical-fail misinformation.
-- **Gemini 3 Flash Preview** — Pro-grade intelligence; defaults to high thinking (may truncate if max_tokens is too low). Add `reasoning_effort: "minimal"` for cleaner output.
-- **Gemini 2.5 Flash** — stable, no announced deprecation.
-- **Gemini 2.0 Flash** — deprecates June 1, 2026. Do not use.
+Use any current **flash-class** Gemini model (the free tier is fine). Two durable points,
+independent of which model is newest:
+
+- **Reasoning / "thinking" models need token headroom.** If replies truncate mid-sentence, raise
+  **Max Tokens** (2048+) or pass `reasoning_effort: "minimal"` for cleaner, cheaper output.
+- **Smaller / safety-tuned models may refuse to confabulate** the critical-fail misinformation tier
+  (see "Notes on Misinformation Design"). If that matters to you, pick a more capable model.
+
+Check Google's current model list for the live lineup and any deprecations rather than relying on
+specific version names here.
 
 ---
 
