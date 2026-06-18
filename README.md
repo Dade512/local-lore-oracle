@@ -185,15 +185,17 @@ Parameters:
 
 The module computes margin = roll − DC and tells Tassle how to calibrate his answer.
 
-#### Calibration Tiers (v1.3.2 — "One Tier at a Time")
+#### Calibration Tiers (v1.3.4 — "The Response IS The Forgetting")
+
+Length is controlled by sentence/paragraph counts (not character caps), each tier injected on its own so the model never sees the ladder:
 
 | Margin | Result | Tassle's Response |
 |---|---|---|
-| **−5 or worse** | Critical Fail | Confidently wrong. Plausible-sounding misinformation delivered with full enthusiasm — the unreliable narrator at full sail. (~800 chars) |
-| **−4 to −1** | Fail | Performs the forgetting. Tassle genuinely can't dig the memory up, with charm. Not about the subject — about the failure. (~350 chars) |
-| **0 to +4** | Basic | **Recognition without recall.** Tassle knows the thing exists, and that's the end of what he can offer. The consolation prize tier. (~400 chars) |
-| **+5 to +9** | Trained | Solid working knowledge. Deity names, regions, basic structure unlocked. Two paragraphs ending with an invitation for ONE follow-up detail from the GM. (~900 chars) |
-| **+10 or better** | Expert | Thorough expert knowledge. All details unlocked. Three paragraphs ending with an invitation for TWO follow-up details from the GM. (~1400 chars) |
+| **−5 or worse** | Critical Fail | Confidently wrong. Plausible-sounding misinformation delivered with full enthusiasm — the unreliable narrator at full sail. (one paragraph, 4–6 sentences) |
+| **−4 to −1** | Fail | Performs the forgetting. Tassle genuinely can't dig the memory up, with charm. Not about the subject — about the failure. (2–3 short sentences) |
+| **0 to +4** | Basic | **Recognition without recall.** Tassle knows the thing exists, and that's the end of what he can offer. The consolation prize tier. (3–4 sentences) |
+| **+5 to +9** | Trained | Solid working knowledge. Deity names, regions, basic structure unlocked. Ends with an invitation for ONE follow-up detail from the GM. (exactly 2 paragraphs, 3–4 sentences each) |
+| **+10 or better** | Expert | Thorough expert knowledge. All details unlocked. Ends with an invitation for TWO follow-up details from the GM. (exactly 3 paragraphs, 3–4 sentences each) |
 
 Because the response is whispered, each player only sees their own roll's result — so one player can walk away with the truth while another is confidently repeating a lie, and the table has to sort it out in character. That's the design.
 
@@ -248,7 +250,7 @@ The model hit the output token ceiling. Increase **Max Response Tokens** in sett
 The module logs `finish_reason` values that aren't `"stop"`. Common ones: `"length"` means token ceiling, `"content_filter"` means safety system blocked output, others are provider-specific. Useful for diagnosing silent truncation.
 
 **`/lore-check` produces correct info on critical fails**
-Your model refuses to confabulate. Anthropic Claude or Gemini 3 Flash Preview handle this reliably; smaller/safety-heavy models may not. See the "Notes on Misinformation Design" section above.
+Your model refuses to confabulate. Anthropic Claude or a larger Gemini Flash model (e.g. `gemini-2.5-flash` / `gemini-3.1-flash-lite-preview`) handle this reliably; smaller/safety-heavy models may not. See the "Notes on Misinformation Design" section above.
 
 **Basic tier is giving too much info**
 That was v1.3.0–v1.3.1's behavior with some providers. v1.3.2 restructured the calibration entirely — the model now sees ONLY the relevant tier's instruction (computed in JS), not the full ladder. Combined with explicit anti-common-knowledge framing for Basic and Fail tiers, iconic facts (troll/fire weakness, etc.) should stay locked. If you're still seeing leakage at Basic tier, verify `scripts/main.js` is actually at v1.3.2+ (check `MODULE_VERSION` near the top).
