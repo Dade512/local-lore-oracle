@@ -18,10 +18,15 @@ export function registerSettings() {
     default: "https://api.anthropic.com/v1/chat/completions",
   });
 
+  // CLIENT scope (v1.5.0 at-rest fix): the key lives only in this browser's local
+  // storage and is never replicated to other clients. The active GM runs every LLM
+  // call (players proxy through the socket), so only the GM's browser needs the key.
+  // This closes the prior world-scope leak where any player could read the key via
+  // game.settings.get(MODULE_ID, "apiKey"). Set the key on the GM's browser.
   game.settings.register(MODULE_ID, "apiKey", {
     name: "API Key",
-    hint: "Anthropic key (sk-ant-...) from console.anthropic.com. Gemini key from aistudio.google.com/apikey. For Ollama: leave blank. Sent as Authorization: Bearer header.",
-    scope: "world",
+    hint: "Anthropic key (sk-ant-...) from console.anthropic.com. Gemini key from aistudio.google.com/apikey. For Ollama: leave blank. Sent as Authorization: Bearer header. Stored only in THIS browser (client scope) — set it on the GM's browser; it is not shared with players or across machines.",
+    scope: "client",
     config: true,
     type: String,
     default: "",

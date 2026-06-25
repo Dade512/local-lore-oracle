@@ -2,7 +2,7 @@
 
 A player-facing lore assistant for **Foundry VTT v13** powered by an OpenAI-compatible LLM endpoint. Players type `/lore` in chat to consult **Tasslequill Stumblebrook**, a kender bard and self-proclaimed Chronicler of the Unwritten. GMs use `/lore-check` to deliver calibrated, roll-gated knowledge to specific players as private whispers.
 
-**Current version:** 1.4.0
+**Current version:** 1.5.0
 **Foundry compatibility:** v13 (minimum & verified)
 
 ---
@@ -36,9 +36,11 @@ The module always sends the `anthropic-dangerous-direct-browser-access: true` he
 
 ---
 
-## Security Model (v1.4.0)
+## Security Model (v1.5.0)
 
-As of v1.4.0, the API key never leaves the GM's browser. Player `/lore` commands are routed through a server-side socket to the active GM client, which runs the LLM call and posts the response. Players never touch the API endpoint directly and cannot observe the key in network traffic.
+The API key is stored **client-side, in the GM's own browser**, and never leaves it. Player `/lore` commands are routed through a server-side socket to the active GM client, which runs the LLM call and posts the response. Players never touch the API endpoint directly, cannot observe the key in network traffic, and cannot read it at rest.
+
+> **v1.5.0 — at-rest fix.** v1.4.0 added the socket proxy, which closed the *network* exposure — but the key was still registered `scope: "world"`, which Foundry replicates to every connected client, so a player could still read it via `game.settings.get("local-lore-oracle", "apiKey")`. v1.5.0 registers the key as `scope: "client"`, so it lives only in the GM's browser local storage and is never replicated. (One-time effect: after upgrading, the GM re-enters the key under their own client settings.)
 
 This is the correct architecture for any Foundry module handling credentials. For a trusted home-game table it's belt-and-suspenders; for anyone running a semi-public server it's the difference between a safe deployment and an exposed key.
 
@@ -231,7 +233,7 @@ The Oracle is architecturally firewalled to prevent meta-knowledge leaks:
 - **Character-driven deflection.** When the LLM doesn't know something or shouldn't reveal it, Tassle deflects in character rather than refusing robotically.
 - **Hallucination coverage.** If the model confabulates, it reads as Tassle being Tassle — "I MIGHT be confusing this with a different city…"
 - **`/lore-check` GM-gating.** Non-GM users attempting `/lore-check` are blocked with a notification. The command never fires for players, so they cannot self-calibrate their own knowledge checks.
-- **API key GM-only (v1.4.0).** Player `/lore` commands are proxied through the GM client via Foundry's socket layer. The key is never read or transmitted by a player browser.
+- **API key GM-only (v1.5.0).** The key is registered `scope: "client"`, so it is stored only in the GM's browser and is never replicated to players. Player `/lore` commands are proxied through the GM client via Foundry's socket layer, so the key is never read by a player browser — neither at rest (client scope) nor in transit (socket proxy).
 
 ---
 
@@ -282,6 +284,9 @@ This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at
 ---
 
 ## Changelog
+
+### v1.5.0 — "Kept Behind the Bar"
+At-rest credential fix completing the v1.4.0 work. The API key setting was registered `scope: "world"`, which Foundry replicates to every connected client — so although v1.4.0's socket proxy stopped players from *making* the LLM call, any player could still read the key with `game.settings.get("local-lore-oracle", "apiKey")`. Changed `apiKey` to `scope: "client"` (`scripts/settings.js`), so the key lives only in the GM's browser local storage and is never sent to other clients. The active GM still runs every call (players proxy through the socket), so nothing else changes. **Upgrade note:** the key does not migrate from world to client scope — the GM re-enters it once under their own client settings. Public provider/model/temperature/cooldown settings remain world-scope.
 
 ### v1.4.0 — "Keys Behind the Bar"
 Three Priority A security fixes. No user-facing feature changes; command surface and visual output are identical.
