@@ -1,5 +1,5 @@
 /* ============================================================
-   LOCAL LORE ORACLE — MAIN v1.5.0
+   LOCAL LORE ORACLE — MAIN v1.6.0
    Chat-integrated LLM lore assistant.
 
    v1.4.0: Security hardening — "Keys Behind the Bar"
@@ -61,7 +61,7 @@
 import { registerSettings } from "./settings.js";
 
 const MODULE_ID = "local-lore-oracle";
-const MODULE_VERSION = "1.5.0";
+const MODULE_VERSION = "1.6.0";
 const ORACLE_ALIAS = "Tasslequill Stumblebrook";
 const ORACLE_SUBTITLE = "Chronicler of the Unwritten · Devotee of Cayden Cailean";
 
