@@ -66,13 +66,23 @@ const ORACLE_ALIAS = "Tasslequill Stumblebrook";
 const ORACLE_SUBTITLE = "Chronicler of the Unwritten · Devotee of Cayden Cailean";
 
 // Client-side UX cooldown only — not enforced. Real enforcement is
-// _gmRateLimitMap on the GM side (see _handleSocketLoreQuery).
+// _gmRateLimitMap on the GM side (see runQuery).
 let _lastQueryTime = 0;
 
-// GM-side rate limit store: userId → last call timestamp (ms).
-// Keyed by sender so each player has their own cooldown window.
-// Only populated and checked on GM clients.
+// GM-side rate limit store: verified userId → last call timestamp (ms).
+// Keyed by this.socketdata.userId (socketlib's verified sender identity,
+// sourced from Foundry's socket/session layer), never a payload-claimed
+// field. Only populated and checked on GM clients.
 const _gmRateLimitMap = new Map();
+
+// GM-side cap on player-supplied query length, enforced in runQuery()
+// before the string ever reaches _callLLM's fetch payload. maxTokens
+// (settings.js) only bounds LLM *output* — this bounds the *input*.
+const MAX_QUERY_LENGTH = 2000;
+
+// socketlib module handle. Set once socketlib.ready fires; used by
+// _requestOracleQuery to route player queries through executeAsGM.
+let oracleSocket = null;
 
 /* ----------------------------------------------------------
    DEFAULT SYSTEM PROMPT
@@ -117,6 +127,16 @@ Hooks.once("init", () => {
   registerSettings();
 });
 
+// Socket registration — moved to socketlib.ready (not init/setup/ready) per
+// VERIFIED_SENDER_PATTERN_REFERENCE.md §2, confirmed against socketlib's own
+// source (socketlib.js:18-21 fires this hook itself from its own init hook).
+// runQuery is registered with `function` syntax, not arrow — socketlib binds
+// `this` via `.call()` (VERIFIED_SENDER_PATTERN_REFERENCE.md §3).
+Hooks.once("socketlib.ready", () => {
+  oracleSocket = socketlib.registerModule(MODULE_ID);
+  oracleSocket.register("runQuery", runQuery);
+});
+
 Hooks.once("ready", () => {
   const currentPrompt = game.settings.get(MODULE_ID, "systemPrompt");
   if (!currentPrompt) {
@@ -124,22 +144,6 @@ Hooks.once("ready", () => {
     console.log(`${MODULE_ID} | Default system prompt installed`);
   }
   console.log(`${MODULE_ID} | Local Lore Oracle v${MODULE_VERSION} ready — type /lore [question] in chat`);
-
-  // Socket handler — receives /lore proxy requests from player clients.
-  // All connected GM clients receive every socket event on this channel.
-  // Only the first active GM found in collection iteration order processes
-  // the request, preventing duplicate responses when multiple GMs are connected.
-  game.socket.on(`module.${MODULE_ID}`, async (data) => {
-    if (!game.user.isGM) return;
-
-    // Pick the first active GM in collection iteration order as the handler.
-    const primaryGM = game.users.find(u => u.isGM && u.active);
-    if (!primaryGM || primaryGM.id !== game.user.id) return;
-
-    if (data.type === "loreQuery") {
-      await _handleSocketLoreQuery(data);
-    }
-  });
 });
 
 /* ----------------------------------------------------------
@@ -174,13 +178,19 @@ Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
 
 /* ----------------------------------------------------------
    QUERY ROUTER — /lore
-   
+
    GMs call _handleOracleQuery() directly — they already have
    GM-level settings access and the API key is theirs to use.
-   
-   Players emit a socket request. The active GM client receives
-   it, enforces rate limiting, runs the LLM call, and updates
-   the chat message. If no GM is active, the player is warned.
+
+   Players call the GM's registered runQuery handler via
+   socketlib's executeAsGM. The player's own client creates and
+   later updates its own thinking card locally from the awaited
+   return value — the GM handler never touches the player's
+   ChatMessage document. This removes messageId from the
+   cross-client authority boundary entirely (D3 §4, GO verdict).
+   If no GM is connected or the call otherwise fails, socketlib
+   rejects the promise and the player sees a graceful error card
+   instead of a silent hang (D3 §4 feasibility evidence).
    ---------------------------------------------------------- */
 
 async function _requestOracleQuery(query) {
@@ -192,83 +202,83 @@ async function _requestOracleQuery(query) {
     return;
   }
 
-  // Player path: route through GM socket proxy.
-  const activeGM = game.users.find(u => u.isGM && u.active);
-  if (!activeGM) {
-    ui.notifications.warn("No GM is available to consult Tassle.");
+  // Player path: route through the GM via socketlib.
+  if (!oracleSocket) {
+    ui.notifications.warn("Socket layer isn't ready yet. Please try again in a moment.");
     return;
   }
 
-  // Create the thinking card immediately for UX responsiveness.
-  // The GM will update this message once the LLM responds.
+  // Create the thinking card immediately for UX responsiveness. The
+  // player's own client updates this message once executeAsGM
+  // resolves or rejects — the GM handler never reads or writes it.
   const thinkingMsg = await ChatMessage.create({
     speaker: { alias: ORACLE_ALIAS },
     content: _buildThinkingCard(query),
   });
 
-  game.socket.emit(`module.${MODULE_ID}`, {
-    type: "loreQuery",
-    query,
-    senderId: game.user.id,
-    messageId: thinkingMsg.id,
-  });
+  try {
+    const response = await oracleSocket.executeAsGM(runQuery, {
+      query,
+      actorId: game.user.character?.id,
+    });
+    await thinkingMsg.update({ content: _buildResponseCard(query, response) });
+  } catch (error) {
+    // SocketlibNoGMConnectedError / SocketlibRemoteException /
+    // SocketlibUnregisteredHandlerError. socketlib deliberately keeps
+    // the GM handler's real thrown error text GM-console-only (see
+    // socketlib.js _handleRequest's catch block) — none of these
+    // three rejection types carry the original message back to the
+    // caller, so all are surfaced identically here (D3 §4).
+    console.error(`${MODULE_ID} | Oracle socket query failed:`, error);
+    await thinkingMsg.update({
+      content: _buildErrorCard(query, "The GM isn't available right now."),
+    });
+  }
 }
 
 /* ----------------------------------------------------------
-   SOCKET HANDLER — GM side
-   
-   Receives loreQuery events from player clients. Enforces
-   per-player rate limiting, runs the LLM call, and updates
-   the pre-created thinking card with the response or error.
+   SOCKET HANDLER — GM side (registered on socketlib)
+
+   Runs on the active GM's client only, invoked via the calling
+   player's socket.executeAsGM(runQuery, ...). Caller identity
+   comes exclusively from this.socketdata.userId — socketlib's
+   own verified sender, supplied by Foundry's socket/session
+   layer, never from a payload field (VERIFIED_SENDER_PATTERN_
+   REFERENCE.md §3). Must be declared with `function`, not arrow
+   syntax, since socketlib binds `this` via `.call()`. Enforces
+   the query-length cap and per-player rate limit, then returns
+   the LLM response text to the caller via executeAsGM's return
+   channel — it never touches game.messages.
    ---------------------------------------------------------- */
 
-async function _handleSocketLoreQuery({ query, senderId, messageId }) {
+async function runQuery({ query, actorId } = {}) {
+  const callerId = this.socketdata.userId;
+
+  if (typeof query !== "string" || !Number.isFinite(MAX_QUERY_LENGTH) || query.length > MAX_QUERY_LENGTH) {
+    console.warn(`${MODULE_ID} | Rejected oversized query from ${callerId} (${query?.length ?? "?"} chars)`);
+    throw new Error(`Query exceeds the maximum length of ${MAX_QUERY_LENGTH} characters.`);
+  }
+
   const cooldown = game.settings.get(MODULE_ID, "cooldownSeconds") ?? 0;
   const now = Date.now();
-  const last = _gmRateLimitMap.get(senderId) ?? 0;
+  const last = _gmRateLimitMap.get(callerId) ?? 0;
 
   if (cooldown > 0 && (now - last) < cooldown * 1000) {
     const remaining = Math.ceil((cooldown * 1000 - (now - last)) / 1000);
-    console.warn(`${MODULE_ID} | Rate limit: ${senderId} must wait ${remaining}s`);
-
-    // Delete the thinking card the player already created.
-    const thinkingMsg = game.messages.get(messageId);
-    if (thinkingMsg) await thinkingMsg.delete();
-
-    // Whisper a warning back to the sender.
-    await ChatMessage.create({
-      whisper: [senderId],
-      content: `<em>Tassle is still pondering the last question. Try again in ${remaining}s.</em>`,
-    });
-    return;
+    console.warn(`${MODULE_ID} | Rate limit: ${callerId} must wait ${remaining}s`);
+    throw new Error(`Rate limited: try again in ${remaining}s.`);
   }
 
   // Record this call before the await so overlapping requests from
-  // the same player are also blocked while the LLM is in flight.
-  _gmRateLimitMap.set(senderId, now);
+  // the same verified caller are also blocked while the LLM is in flight.
+  _gmRateLimitMap.set(callerId, now);
 
-  const thinkingMsg = game.messages.get(messageId);
+  // actorId is accepted for parity with the implementation shape and
+  // potential future use (e.g. per-actor knowledge scoping); it is not
+  // currently read by _callLLM and has no authority role.
+  void actorId;
 
-  try {
-    const response = await _callLLM(query);
-    const responseContent = _buildResponseCard(query, response);
-
-    if (thinkingMsg) {
-      await thinkingMsg.update({ content: responseContent });
-    } else {
-      // Fallback: thinking card was deleted or never arrived.
-      await ChatMessage.create({
-        speaker: { alias: ORACLE_ALIAS },
-        content: responseContent,
-      });
-    }
-  } catch (error) {
-    console.error(`${MODULE_ID} | Socket oracle query failed:`, error);
-    const errorContent = _buildErrorCard(query, error.message);
-    if (thinkingMsg) {
-      await thinkingMsg.update({ content: errorContent });
-    }
-  }
+  return _callLLM(query);
 }
 
 /* ----------------------------------------------------------
@@ -309,9 +319,9 @@ async function _handleOracleQuery(query) {
    safe to include unconditionally.
 
    v1.4.0: This function is called ONLY on GM clients.
-   Players route through the socket proxy (_requestOracleQuery
-   → _handleSocketLoreQuery). The API key never leaves the
-   GM's browser context.
+   Players route through the socketlib proxy (_requestOracleQuery
+   → runQuery, executed on the GM's client via executeAsGM). The
+   API key never leaves the GM's browser context.
 
    The `calibration` parameter appends tier-specific
    instructions to the system prompt (used by /lore-check).

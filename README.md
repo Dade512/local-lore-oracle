@@ -44,11 +44,13 @@ The API key is stored **client-side, in the GM's own browser**, and never leaves
 
 This is the correct architecture for any Foundry module handling credentials. For a trusted home-game table it's belt-and-suspenders; for anyone running a semi-public server it's the difference between a safe deployment and an exposed key.
 
+**Query/response socket transport threat model.** This is additional to — not a correction of — the `apiKey` claims above, which are about the credential specifically and remain accurate. Messages are routed only to their intended handler and hidden from normal chat/UI using verified sender identity. This is not cryptographic secrecy: a technically capable connected client can still observe socket traffic (and for broadcast-transport messages, every client receives the payload — no special capability required, the module code on non-recipients simply declines to act on it). The module protects against accidental disclosure and identity forgery, not against a determined malicious client.
+
 **What changed:**
-- `module.json` now declares `"socket": true`
-- Player `/lore` emits `module.local-lore-oracle` socket event to the active GM
-- GM client enforces per-player rate limiting via an in-memory map
-- If no GM is active, the player sees: *"No GM is available to consult Tassle."*
+- Player `/lore` routes through socketlib's `executeAsGM` — not a raw `game.socket` event — and the GM's `runQuery` handler executes on a real connected GM client
+- GM-side rate limiting is keyed by socketlib's verified sender identity (`this.socketdata.userId`), never a payload-supplied field
+- A GM-side cap on query length (2000 characters) rejects oversized input before any LLM call is made
+- If no GM is connected, socketlib itself reports the failure and the player sees: *"No GM is available to consult Tassle."*
 - GM `/lore` and `/lore-check` still call the LLM directly (GM context, no proxy needed)
 
 ---
@@ -284,6 +286,30 @@ This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at
 ---
 
 ## Changelog
+
+### v1.6.0 — "The Countersign"
+Socket authority hardening (`GOAL_v1.6.0_SOCKET_AUTH.md`), migrating player `/lore` proxying from
+the raw `game.socket` event added in v1.4.0 to `socketlib`. The prior mechanism trusted a
+payload-supplied `senderId`/`messageId` pair as though they were authoritative; both were purely
+advisory and forgeable from any connected client console. The practical exposure was limited to
+rate-limit bypass, not credential access (the API key itself was already hardened separately in
+v1.5.0), but the identity boundary itself was not real. Player queries now route through
+socketlib's `executeAsGM`, with GM-side rate limiting keyed by `this.socketdata.userId` —
+socketlib's own verified sender identity, sourced from Foundry's session layer, never a value the
+client can supply. A GM-side cap on query length (2000 characters, distinct from the existing
+`maxTokens` output cap) rejects oversized input before any LLM call is made. If no GM is connected,
+socketlib's own `SocketlibNoGMConnectedError` handling produces the same graceful in-character
+notice players already saw, rather than a silent hang.
+
+**New hard dependency:** `module.json` now declares `socketlib` (>=1.0.0) under `relationships.requires`
+— it was not required before this release. Confirm socketlib is installed and enabled before
+updating. The now-unused `"socket": true` flag was removed in the same pass.
+
+**Runtime-verified two-seat, 2026-07-18** — all five required cases confirmed live against real GM
+and player Foundry seats: query routing through the new path, forged-identity inertness, graceful
+zero-GM handling, the length cap, and the happy-path response landing correctly on the player's
+own thinking card. Evidence:
+`docs/ai-council/GOAL_v1.6.0_SOCKET_AUTH/20260718-150640/`.
 
 ### v1.5.0 — "Kept Behind the Bar"
 At-rest credential fix completing the v1.4.0 work. The API key setting was registered `scope: "world"`, which Foundry replicates to every connected client — so although v1.4.0's socket proxy stopped players from *making* the LLM call, any player could still read the key with `game.settings.get("local-lore-oracle", "apiKey")`. Changed `apiKey` to `scope: "client"` (`scripts/settings.js`), so the key lives only in the GM's browser local storage and is never sent to other clients. The active GM still runs every call (players proxy through the socket), so nothing else changes. **Upgrade note:** the key does not migrate from world to client scope — the GM re-enters it once under their own client settings. Public provider/model/temperature/cooldown settings remain world-scope.
