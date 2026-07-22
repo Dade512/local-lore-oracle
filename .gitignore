@@ -2,3 +2,6 @@
 desktop.ini
 Thumbs.db
 .DS_Store
+
+# Agent operating instructions (local-only, matches baphomet-utils convention)
+AGENTS.md
