@@ -287,6 +287,14 @@ This was a v1.3.1 bug — Claude was parroting the tier ladder structure back at
 
 ## Changelog
 
+### v1.6.1 -- hotfix: restore "socket": true
+A 2026-07-22 audit caught a real regression from v1.6.0's hygiene pass: `"socket": true` was
+removed on the reasoning that migrating to socketlib made it unused. That reasoning was wrong --
+socketlib checks the module's own manifest socket flag directly and refuses to register without
+it, independent of whether the module still calls raw `game.socket`. Restored; verified live
+against the actual manifest fetch, not just local git state. No other changes.
+
+
 ### v1.6.0 — "The Countersign"
 Socket authority hardening (`GOAL_v1.6.0_SOCKET_AUTH.md`), migrating player `/lore` proxying from
 the raw `game.socket` event added in v1.4.0 to `socketlib`. The prior mechanism trusted a
